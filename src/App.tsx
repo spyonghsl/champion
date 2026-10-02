@@ -70,6 +70,7 @@ function PlayerPage() {
     return (
       <>
         <p>You're registered!</p>
+        <img src={participantState.participant.selfieUrl} alt={participantState.participant.nickname} />
         <p>{participantState.participant.nickname}</p>
         <p>Waiting for the game to begin...</p>
       </>
