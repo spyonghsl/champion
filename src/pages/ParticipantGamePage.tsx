@@ -92,11 +92,7 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     setError(null)
 
     try {
-      await submitChampionChoice(
-        uid,
-        round.roundNumber,
-        championId,
-      )
+      await submitChampionChoice(championId)
 
       // Do not set submission manually here.
       // The Firebase realtime subscription will update it.

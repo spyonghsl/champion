@@ -1,7 +1,8 @@
-import { get, increment, onValue, ref, serverTimestamp, update } from 'firebase/database'
+import { get, onValue, ref } from 'firebase/database'
 import type { Unsubscribe } from 'firebase/database'
+import { httpsCallable } from 'firebase/functions'
 
-import { db } from '../firebase/config'
+import { db, functions } from '../firebase/config'
 import { isChampionId, type ChampionId } from '../types/champion'
 import type { Round, RoundStatus } from '../types/round'
 import type { Submission } from '../types/submission'
@@ -98,17 +99,40 @@ export async function getCurrentRoundSubmission(uid: string, roundNumber: number
   return normalizeSubmission(snapshot.val(), uid)
 }
 
-export async function submitChampionChoice(
-  uid: string,
-  roundNumber: number,
-  championId: ChampionId,
-): Promise<void> {
-  await update(ref(db), {
-    [`games/${GAME_ID}/submissions/${roundNumber}/${uid}`]: {
-      uid,
+export async function submitChampionChoice(championId: ChampionId): Promise<void> {
+  const callable = httpsCallable<
+    { gameId: string; championId: ChampionId },
+    { ok: boolean }
+  >(functions, 'submitChampionChoice')
+
+  try {
+    await callable({
+      gameId: GAME_ID,
       championId,
-      submittedAt: serverTimestamp(),
-    },
-    [`games/${GAME_ID}/live/currentRoundVotes/${championId}`]: increment(1),
-  })
+    })
+  } catch (error: unknown) {
+    const code =
+      typeof error === 'object' && error && 'code' in error
+        ? String((error as { code: unknown }).code)
+        : ''
+
+    const normalizedCode = code.startsWith('functions/')
+      ? code.replace('functions/', '')
+      : code
+
+    if (normalizedCode === 'unauthenticated') {
+      throw new Error('You must be signed in to submit a champion.', { cause: error })
+    }
+    if (normalizedCode === 'invalid-argument') {
+      throw new Error('Your champion selection was invalid.', { cause: error })
+    }
+    if (normalizedCode === 'already-exists') {
+      throw new Error('You already submitted a champion for this round.', { cause: error })
+    }
+    if (normalizedCode === 'failed-precondition') {
+      throw new Error('Submissions are not available right now.', { cause: error })
+    }
+
+    throw new Error('Your selection could not be submitted.', { cause: error })
+  }
 }
