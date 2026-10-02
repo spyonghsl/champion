@@ -40,6 +40,12 @@
             ".read": "auth != null && auth.uid == $uid",
             ".write": false
           }
+        },
+        "roundResults": {
+          "$roundNumber": {
+            ".read": false,
+            ".write": false
+          }
         }
       }
     }

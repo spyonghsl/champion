@@ -66,6 +66,11 @@ interface RoundScoreRecord {
     elapsedMs: number | null;
 }
 
+interface RoundResultRecord {
+  status: "finalized";
+  eliminatedChampion: ChampionId;
+}
+
 /**
  * Validates champion ids accepted by the game.
  * @param {unknown} value Potential champion id.
@@ -634,17 +639,18 @@ export const finalizeRound = onCall<GameActionRequest>(
     }
 
     const currentRound = snapshotValue as RoundRecord;
-    if (currentRound.status === "result") {
-      throw new HttpsError(
-        "failed-precondition",
-        "Round is already finalized."
-      );
-    }
-
     if (currentRound.status !== "closed") {
       throw new HttpsError(
         "failed-precondition",
         "Round is not ready to be finalized."
+      );
+    }
+
+    const roundNumber = Number(currentRound.roundNumber);
+    if (!Number.isFinite(roundNumber)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Current round number is invalid."
       );
     }
 
@@ -686,6 +692,29 @@ export const finalizeRound = onCall<GameActionRequest>(
       Math.floor(Math.random() * tiedChampions.length)
     ];
 
+    const roundResultRef = db.ref(
+      `games/${gameId}/roundResults/${roundNumber}`
+    );
+    const claimResult = await roundResultRef.transaction((current) => {
+      if (current && typeof current === "object") {
+        return;
+      }
+
+      const roundResult: RoundResultRecord = {
+        status: "finalized",
+        eliminatedChampion,
+      };
+
+      return roundResult;
+    });
+
+    if (!claimResult.committed) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is already finalized."
+      );
+    }
+
     const verifyBeforeUpdate = await currentRoundRef.get();
     if (!verifyBeforeUpdate.exists()) {
       throw new HttpsError(
@@ -703,13 +732,6 @@ export const finalizeRound = onCall<GameActionRequest>(
     }
 
     const verifyRound = verifyValue as RoundRecord;
-    if (verifyRound.status === "result") {
-      throw new HttpsError(
-        "failed-precondition",
-        "Round is already finalized."
-      );
-    }
-
     if (verifyRound.status !== "closed") {
       throw new HttpsError(
         "failed-precondition",
@@ -717,7 +739,6 @@ export const finalizeRound = onCall<GameActionRequest>(
       );
     }
 
-    const roundNumber = Number(verifyRound.roundNumber);
     const startedAt = toFiniteNumber(verifyRound.startedAt);
     const endsAt = toFiniteNumber(verifyRound.endsAt);
 
@@ -758,7 +779,10 @@ export const finalizeRound = onCall<GameActionRequest>(
                     scoresSnapshot.val() &&
                     typeof scoresSnapshot.val() === "object" ?
                     scoresSnapshot.val() as
-                    Record<string, { total?: unknown }> :
+                    Record<
+                      string,
+                      { rounds?: Record<string, RoundScoreRecord> }
+                    > :
                   {};
 
       for (const uid of Object.keys(participantsRaw)) {
@@ -768,9 +792,26 @@ export const finalizeRound = onCall<GameActionRequest>(
           startedAt,
           endsAt
         );
-        const previousTotal = toFiniteNumber(scoresRaw[uid]?.total) ?? 0;
+
+        const existingRounds =
+          scoresRaw[uid]?.rounds && typeof scoresRaw[uid].rounds === "object" ?
+            scoresRaw[uid].rounds :
+            {};
+
+        let deterministicTotal = 0;
+        for (const scoringRound of [2, 3, 4]) {
+          if (scoringRound === roundNumber) {
+            deterministicTotal += roundScore.score;
+            continue;
+          }
+
+          const existingRoundScore = existingRounds[String(scoringRound)];
+          const numericScore = toFiniteNumber(existingRoundScore?.score);
+          deterministicTotal += numericScore !== null ? numericScore : 0;
+        }
+
         updates[`scores/${uid}/rounds/${roundNumber}`] = roundScore;
-        updates[`scores/${uid}/total`] = previousTotal + roundScore.score;
+        updates[`scores/${uid}/total`] = deterministicTotal;
       }
     }
 
