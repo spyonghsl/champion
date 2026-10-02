@@ -2,10 +2,23 @@
   "rules": {
     "games": {
       "$gameId": {
+        "currentRound": {
+          ".read": "auth != null",
+          ".write": false
+        },
         "participants": {
           "$uid": {
             ".read": "auth != null && auth.uid == $uid",
             ".write": "auth != null && auth.uid == $uid && !data.exists()"
+          }
+        },
+        "submissions": {
+          "$roundNumber": {
+            "$uid": {
+              ".read": "auth != null && auth.uid == $uid",
+              ".write": "auth != null && auth.uid == $uid && !data.exists()",
+              ".validate": "newData.isMap() && newData.child('uid').val() == auth.uid && (newData.child('championId').val() == 'heracles' || newData.child('championId').val() == 'achilles' || newData.child('championId').val() == 'perseus' || newData.child('championId').val() == 'theseus')"
+            }
           }
         },
         "live": {

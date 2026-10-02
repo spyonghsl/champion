@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { auth } from './firebase/config'
 import MainDisplayPage from './pages/MainDisplayPage'
+import ParticipantGamePage from './pages/ParticipantGamePage'
 import RegistrationPage from './pages/RegistrationPage'
 import { getParticipant } from './services/registration'
 import type { Participant } from './types/participant'
@@ -68,12 +69,12 @@ function PlayerPage() {
       return <RegistrationPage uid={uid} onRegistered={() => void loadParticipant(uid)} />
     }
     return (
-      <>
+      <section>
         <p>You're registered!</p>
         <img src={participantState.participant.selfieUrl} alt={participantState.participant.nickname} />
         <p>{participantState.participant.nickname}</p>
-        <p>Waiting for the game to begin...</p>
-      </>
+        <ParticipantGamePage uid={uid} />
+      </section>
     )
   }
 
