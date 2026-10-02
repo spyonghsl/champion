@@ -1,4 +1,4 @@
-import { get, onValue, ref, serverTimestamp, update } from 'firebase/database'
+import { get, increment, onValue, ref, serverTimestamp, update } from 'firebase/database'
 import type { Unsubscribe } from 'firebase/database'
 
 import { db } from '../firebase/config'
@@ -109,5 +109,6 @@ export async function submitChampionChoice(
       championId,
       submittedAt: serverTimestamp(),
     },
+    [`games/${GAME_ID}/live/currentRoundVotes/${championId}`]: increment(1),
   })
 }

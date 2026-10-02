@@ -25,6 +25,14 @@
           "registeredCount": {
             ".read": true,
             ".write": "auth != null && newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && newData.val() == data.val() + 1))"
+          },
+          "currentRoundVotes": {
+            ".read": true,
+            ".write": false,
+            "$championId": {
+              ".write": "auth != null && ($championId == 'heracles' || $championId == 'achilles' || $championId == 'perseus' || $championId == 'theseus') && newData.isNumber() && ((!data.exists() && newData.val() == 1) || (data.exists() && newData.val() == data.val() + 1)) && root.child('games/' + $gameId + '/currentRound/roundNumber').isNumber() && !root.child('games/' + $gameId + '/submissions/' + root.child('games/' + $gameId + '/currentRound/roundNumber').val() + '/' + auth.uid).exists() && newData.root.child('games/' + $gameId + '/submissions/' + newData.root.child('games/' + $gameId + '/currentRound/roundNumber').val() + '/' + auth.uid + '/uid').val() == auth.uid && newData.root.child('games/' + $gameId + '/submissions/' + newData.root.child('games/' + $gameId + '/currentRound/roundNumber').val() + '/' + auth.uid + '/championId').val() == $championId",
+              ".validate": "newData.isNumber()"
+            }
           }
         }
       }

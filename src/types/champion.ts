@@ -9,6 +9,8 @@ export interface Champion {
     displayName: string
 }
 
+export type ChampionVoteTotals = Record<ChampionId, number>
+
 export const CHAMPIONS: Champion[] = [
     {
         id: 'heracles',
@@ -27,6 +29,13 @@ export const CHAMPIONS: Champion[] = [
         displayName: 'Theseus',
     },
 ]
+
+export const EMPTY_CHAMPION_VOTE_TOTALS: ChampionVoteTotals = {
+    heracles: 0,
+    achilles: 0,
+    perseus: 0,
+    theseus: 0,
+}
 
 export function isChampionId(value: unknown): value is ChampionId {
     return (
