@@ -14,6 +14,10 @@ interface SubmitChampionChoiceRequest {
     championId?: unknown;
 }
 
+interface GameActionRequest {
+  gameId?: unknown;
+}
+
 interface CurrentRound {
     roundNumber?: unknown;
     status?: unknown;
@@ -31,6 +35,15 @@ interface GameRoot {
     live?: {
         currentRoundVotes?: Record<string, number>;
     };
+}
+
+interface RoundRecord {
+  roundNumber: number;
+  isDemo: boolean;
+  status: "countdown" | "voting" | "closed" | "result" | "registration";
+  startedAt: number | null;
+  endsAt: number | null;
+  eliminatedChampion: ChampionId | null;
 }
 
 /**
@@ -54,6 +67,17 @@ function isChampionId(value: unknown): value is ChampionId {
  */
 function isValidGameId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]+$/.test(value);
+}
+
+/**
+ * Sleeps for the given duration.
+ * @param {number} milliseconds Duration in milliseconds.
+ * @return {Promise<void>} Promise resolved after the delay.
+ */
+function waitFor(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
 
 export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
@@ -172,6 +196,160 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       throw new HttpsError(
         "failed-precondition",
         "Submission could not be completed."
+      );
+    }
+
+    return {ok: true};
+  }
+);
+
+export const startDemoRound = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const gameRef = getDatabase().ref(`games/${gameId}`);
+    let abortedBecauseRoundAlreadyExists = false;
+
+    const creationResult = await gameRef.transaction((current) => {
+      const game = (current ?? {}) as GameRoot;
+      if (game.currentRound) {
+        abortedBecauseRoundAlreadyExists = true;
+        return;
+      }
+
+      const currentRound: RoundRecord = {
+        roundNumber: 1,
+        isDemo: true,
+        status: "countdown",
+        startedAt: null,
+        endsAt: null,
+        eliminatedChampion: null,
+      };
+
+      return {
+        ...game,
+        currentRound,
+        live: {
+          ...(game.live ?? {}),
+          currentRoundVotes: {
+            heracles: 0,
+            achilles: 0,
+            perseus: 0,
+            theseus: 0,
+          },
+        },
+      };
+    });
+
+    if (!creationResult.committed) {
+      if (abortedBecauseRoundAlreadyExists) {
+        throw new HttpsError(
+          "already-exists",
+          "A round is already active."
+        );
+      }
+
+      throw new HttpsError(
+        "failed-precondition",
+        "Demo round could not be started."
+      );
+    }
+
+    await waitFor(3000);
+
+    const currentRoundRef = getDatabase().ref(`games/${gameId}/currentRound`);
+    const votingResult = await currentRoundRef.transaction((current) => {
+      if (!current || typeof current !== "object") {
+        throw new HttpsError(
+          "failed-precondition",
+          "No current round is available."
+        );
+      }
+
+      const round = current as RoundRecord;
+      if (round.status !== "countdown") {
+        return;
+      }
+
+      const startedAt = Date.now();
+      return {
+        ...round,
+        status: "voting",
+        startedAt,
+        endsAt: startedAt + 20000,
+      };
+    });
+
+    if (!votingResult.committed) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Demo round countdown could not transition to voting."
+      );
+    }
+
+    return {ok: true};
+  }
+);
+
+export const closeVoting = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const currentRoundRef = getDatabase().ref(`games/${gameId}/currentRound`);
+    const closeResult = await currentRoundRef.transaction((current) => {
+      if (!current || typeof current !== "object") {
+        throw new HttpsError(
+          "failed-precondition",
+          "No current round is available."
+        );
+      }
+
+      const round = current as RoundRecord;
+      if (round.status !== "voting") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Voting is not currently open."
+        );
+      }
+
+      return {
+        ...round,
+        status: "closed",
+      };
+    });
+
+    if (!closeResult.committed) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Voting could not be closed."
       );
     }
 

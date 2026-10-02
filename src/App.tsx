@@ -3,6 +3,7 @@ import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
 import { auth } from './firebase/config'
+import GmPage from './pages/GmPage'
 import MainDisplayPage from './pages/MainDisplayPage'
 import ParticipantGamePage from './pages/ParticipantGamePage'
 import RegistrationPage from './pages/RegistrationPage'
@@ -92,6 +93,7 @@ function App() {
       <Routes>
         <Route path="/" element={<PlayerPage />} />
         <Route path="/display" element={<MainDisplayPage />} />
+        <Route path="/gm" element={<GmPage />} />
       </Routes>
     </BrowserRouter>
   )
