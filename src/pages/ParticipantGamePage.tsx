@@ -124,7 +124,25 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   }
 
   if (round.status === 'result') {
-    return <p>Result phase is underway. Results will be shown here.</p>
+    const eliminatedChampionName = round.eliminatedChampion
+      ? championMap[round.eliminatedChampion].displayName
+      : 'Pending'
+
+    return (
+      <section>
+        <p>Eliminated: {eliminatedChampionName}</p>
+
+        {submission && round.eliminatedChampion
+          ? (
+            <p>
+              {submission.championId === round.eliminatedChampion
+                ? 'Your champion was eliminated.'
+                : 'Your champion survived.'}
+            </p>
+          )
+          : null}
+      </section>
+    )
   }
 
   if (round.status === 'voting') {

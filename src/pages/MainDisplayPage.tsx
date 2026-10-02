@@ -6,7 +6,7 @@ import {
   subscribeToCurrentRoundVotes,
   subscribeToRegisteredCount,
 } from '../services/display'
-import { CHAMPIONS, EMPTY_CHAMPION_VOTE_TOTALS, type ChampionVoteTotals } from '../types/champion'
+import { CHAMPIONS, EMPTY_CHAMPION_VOTE_TOTALS, championMap, type ChampionVoteTotals } from '../types/champion'
 import type { Round } from '../types/round'
 
 // Fixed positioning escapes the width-constrained #root to fill the viewport.
@@ -71,6 +71,20 @@ const labelStyle: CSSProperties = {
   letterSpacing: '0.1em',
 }
 
+const eliminatedTitleStyle: CSSProperties = {
+  margin: '1.5rem 0 0',
+  fontSize: '4vmin',
+  letterSpacing: '0.2em',
+  fontWeight: 700,
+}
+
+const eliminatedChampionStyle: CSSProperties = {
+  margin: '0.5rem 0 0',
+  fontSize: '10vmin',
+  fontWeight: 700,
+  lineHeight: 1.1,
+}
+
 function MainDisplayPage() {
   const [count, setCount] = useState(0)
   const [currentRound, setCurrentRound] = useState<Round | null>(null)
@@ -125,7 +139,21 @@ function MainDisplayPage() {
       )
     }
 
-    return <p style={labelStyle}>Result phase placeholder</p>
+    if (currentRound.status === 'result') {
+      const eliminatedName = currentRound.eliminatedChampion
+        ? championMap[currentRound.eliminatedChampion].displayName
+        : 'Pending'
+
+      return (
+        <>
+          <p style={eliminatedTitleStyle}>ELIMINATED</p>
+          <p style={eliminatedChampionStyle}>{eliminatedName}</p>
+          {renderVotes()}
+        </>
+      )
+    }
+
+    return <p style={labelStyle}>Round state unavailable</p>
   }
 
   return (

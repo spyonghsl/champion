@@ -1,10 +1,15 @@
 import { httpsCallable } from 'firebase/functions'
 
 import { functions } from '../firebase/config'
+import type { ChampionId } from '../types/champion'
 import { GAME_ID } from './game'
 
 interface CallableResult {
     ok: boolean
+}
+
+interface FinalizeRoundResult extends CallableResult {
+    eliminatedChampion: ChampionId
 }
 
 function extractCallableCode(error: unknown): string {
@@ -70,3 +75,29 @@ export async function closeVoting(): Promise<void> {
         throw new Error('Failed to close voting.', { cause: error })
     }
 }
+
+    export async function finalizeRound(): Promise<ChampionId> {
+        const callable = httpsCallable<{ gameId: string }, FinalizeRoundResult>(
+            functions,
+            'finalizeRound',
+        )
+
+        try {
+            const response = await callable({ gameId: GAME_ID })
+            return response.data.eliminatedChampion
+        } catch (error: unknown) {
+            const code = extractCallableCode(error)
+
+            if (code === 'unauthenticated') {
+                throw new Error('You must be signed in to finalize the round.', { cause: error })
+            }
+            if (code === 'invalid-argument') {
+                throw new Error('The game id was invalid.', { cause: error })
+            }
+            if (code === 'failed-precondition') {
+                throw new Error('This round cannot be finalized right now.', { cause: error })
+            }
+
+            throw new Error('Failed to finalize the round.', { cause: error })
+        }
+    }

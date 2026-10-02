@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 
 import { auth } from '../firebase/config'
-import { closeVoting, startDemoRound } from '../services/gm'
+import { championMap } from '../types/champion'
+import { closeVoting, finalizeRound, startDemoRound } from '../services/gm'
 import { subscribeToCurrentRound } from '../services/game'
 import type { Round } from '../types/round'
 
@@ -58,6 +59,18 @@ function GmPage() {
     }
   }
 
+  async function handleFinalizeRound() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await finalizeRound()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to finalize round.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
   function renderControls() {
     if (!round) {
       return (
@@ -88,7 +101,23 @@ function GmPage() {
     }
 
     if (round.status === 'closed') {
-      return <p>Voting closed</p>
+      return (
+        <button
+          type="button"
+          onClick={() => void handleFinalizeRound()}
+          disabled={isActing || !isReady}
+        >
+          Finalize Result
+        </button>
+      )
+    }
+
+    if (round.status === 'result') {
+      if (!round.eliminatedChampion) {
+        return <p>Eliminated: Pending</p>
+      }
+
+      return <p>Eliminated: {championMap[round.eliminatedChampion].displayName}</p>
     }
 
     return <p>No control available for this round state yet.</p>

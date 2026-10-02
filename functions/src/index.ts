@@ -9,6 +9,13 @@ initializeApp();
 
 type ChampionId = "heracles" | "achilles" | "perseus" | "theseus";
 
+const CHAMPION_IDS: ChampionId[] = [
+  "heracles",
+  "achilles",
+  "perseus",
+  "theseus",
+];
+
 interface SubmitChampionChoiceRequest {
     gameId?: unknown;
     championId?: unknown;
@@ -368,5 +375,138 @@ export const closeVoting = onCall<GameActionRequest>(
     await currentRoundRef.update({status: "closed"});
 
     return {ok: true};
+  }
+);
+
+export const finalizeRound = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const db = getDatabase();
+    const currentRoundRef = db.ref(`games/${gameId}/currentRound`);
+    const currentRoundSnapshot = await currentRoundRef.get();
+
+    if (!currentRoundSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const snapshotValue = currentRoundSnapshot.val();
+    if (!snapshotValue || typeof snapshotValue !== "object") {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const currentRound = snapshotValue as RoundRecord;
+    if (currentRound.status === "result") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is already finalized."
+      );
+    }
+
+    if (currentRound.status !== "closed") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is not ready to be finalized."
+      );
+    }
+
+    const votesRef = db.ref(`games/${gameId}/live/currentRoundVotes`);
+    const votesSnapshot = await votesRef.get();
+    const rawVotes = votesSnapshot.exists() &&
+      votesSnapshot.val() &&
+      typeof votesSnapshot.val() === "object" ?
+      votesSnapshot.val() as Record<string, unknown> :
+      {};
+
+    const totals: Record<ChampionId, number> = {
+      heracles: Number.isFinite(Number(rawVotes.heracles)) ?
+        Number(rawVotes.heracles) :
+        0,
+      achilles: Number.isFinite(Number(rawVotes.achilles)) ?
+        Number(rawVotes.achilles) :
+        0,
+      perseus: Number.isFinite(Number(rawVotes.perseus)) ?
+        Number(rawVotes.perseus) :
+        0,
+      theseus: Number.isFinite(Number(rawVotes.theseus)) ?
+        Number(rawVotes.theseus) :
+        0,
+    };
+
+    const highestVotes = Math.max(
+      totals.heracles,
+      totals.achilles,
+      totals.perseus,
+      totals.theseus
+    );
+
+    const tiedChampions = CHAMPION_IDS.filter(
+      (championId) => totals[championId] === highestVotes
+    );
+
+    const eliminatedChampion = tiedChampions[
+      Math.floor(Math.random() * tiedChampions.length)
+    ];
+
+    const verifyBeforeUpdate = await currentRoundRef.get();
+    if (!verifyBeforeUpdate.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const verifyValue = verifyBeforeUpdate.val();
+    if (!verifyValue || typeof verifyValue !== "object") {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const verifyRound = verifyValue as RoundRecord;
+    if (verifyRound.status === "result") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is already finalized."
+      );
+    }
+
+    if (verifyRound.status !== "closed") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is not ready to be finalized."
+      );
+    }
+
+    await currentRoundRef.update({
+      status: "result",
+      eliminatedChampion,
+    });
+
+    return {
+      ok: true,
+      eliminatedChampion,
+    };
   }
 );
