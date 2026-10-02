@@ -3,8 +3,10 @@ import type { CSSProperties } from 'react'
 
 import { CHAMPIONS, championMap, type ChampionId } from '../types/champion'
 import type { Round } from '../types/round'
+import type { ParticipantScore } from '../types/score'
 import type { Submission } from '../types/submission'
 import {
+  subscribeToParticipantScore,
   submitChampionChoice,
   subscribeToCurrentRound,
   subscribeToRoundSubmission,
@@ -48,10 +50,12 @@ interface RoundSubmissionState {
 function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   const [round, setRound] = useState<Round | null>(null)
   const [submissionState, setSubmissionState] = useState<RoundSubmissionState | null>(null)
+  const [participantScore, setParticipantScore] = useState<ParticipantScore | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => subscribeToCurrentRound(setRound), [])
+  useEffect(() => subscribeToParticipantScore(uid, setParticipantScore), [uid])
 
   useEffect(() => {
     if (!round?.roundNumber) {
@@ -127,12 +131,16 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     const eliminatedChampionName = round.eliminatedChampion
       ? championMap[round.eliminatedChampion].displayName
       : 'Pending'
+    const roundScore = participantScore?.rounds[String(round.roundNumber)] ?? null
+    const totalScore = participantScore?.total ?? 0
+    const didSubmit = Boolean(submission)
+    const hasEliminatedChampion = Boolean(round.eliminatedChampion)
 
     return (
       <section>
         <p>Eliminated: {eliminatedChampionName}</p>
 
-        {submission && round.eliminatedChampion
+        {submission && hasEliminatedChampion
           ? (
             <p>
               {submission.championId === round.eliminatedChampion
@@ -141,6 +149,15 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
             </p>
           )
           : null}
+
+        {round.isDemo
+          ? <p>Demo round - no points awarded.</p>
+          : (
+            <>
+              {didSubmit ? <p>Round score: {roundScore ? roundScore.score : 0}</p> : null}
+              <p>Total score: {totalScore}</p>
+            </>
+          )}
       </section>
     )
   }

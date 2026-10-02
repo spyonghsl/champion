@@ -3,7 +3,7 @@ import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 
 import { auth } from '../firebase/config'
 import { championMap } from '../types/champion'
-import { closeVoting, finalizeRound, startDemoRound } from '../services/gm'
+import { closeVoting, finalizeRound, startDemoRound, startNextRound } from '../services/gm'
 import { subscribeToCurrentRound } from '../services/game'
 import type { Round } from '../types/round'
 
@@ -71,6 +71,32 @@ function GmPage() {
     }
   }
 
+  async function handleStartNextRound() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await startNextRound()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start next round.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  function nextRoundLabel(roundNumber: number): string | null {
+    if (roundNumber === 1) {
+      return 'Start Round 2'
+    }
+    if (roundNumber === 2) {
+      return 'Start Round 3'
+    }
+    if (roundNumber === 3) {
+      return 'Start Round 4'
+    }
+
+    return null
+  }
+
   function renderControls() {
     if (!round) {
       return (
@@ -113,11 +139,27 @@ function GmPage() {
     }
 
     if (round.status === 'result') {
-      if (!round.eliminatedChampion) {
-        return <p>Eliminated: Pending</p>
-      }
+      const buttonLabel = nextRoundLabel(round.roundNumber)
 
-      return <p>Eliminated: {championMap[round.eliminatedChampion].displayName}</p>
+      return (
+        <>
+          {round.eliminatedChampion
+            ? <p>Eliminated: {championMap[round.eliminatedChampion].displayName}</p>
+            : <p>Eliminated: Pending</p>}
+
+          {buttonLabel
+            ? (
+              <button
+                type="button"
+                onClick={() => void handleStartNextRound()}
+                disabled={isActing || !isReady}
+              >
+                {buttonLabel}
+              </button>
+            )
+            : <p>Scoring rounds complete</p>}
+        </>
+      )
     }
 
     return <p>No control available for this round state yet.</p>

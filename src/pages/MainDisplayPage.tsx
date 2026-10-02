@@ -143,9 +143,11 @@ function MainDisplayPage() {
       const eliminatedName = currentRound.eliminatedChampion
         ? championMap[currentRound.eliminatedChampion].displayName
         : 'Pending'
+      const roundLabel = `Round ${currentRound.roundNumber} Result`
 
       return (
         <>
+          <p style={labelStyle}>{roundLabel}</p>
           <p style={eliminatedTitleStyle}>ELIMINATED</p>
           <p style={eliminatedChampionStyle}>{eliminatedName}</p>
           {renderVotes()}

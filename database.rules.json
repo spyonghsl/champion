@@ -34,6 +34,12 @@
               ".validate": "newData.isNumber()"
             }
           }
+        },
+        "scores": {
+          "$uid": {
+            ".read": "auth != null && auth.uid == $uid",
+            ".write": false
+          }
         }
       }
     }

@@ -5,6 +5,7 @@ import { httpsCallable } from 'firebase/functions'
 import { db, functions } from '../firebase/config'
 import { isChampionId, type ChampionId } from '../types/champion'
 import type { Round, RoundStatus } from '../types/round'
+import type { ParticipantScore, RoundScore } from '../types/score'
 import type { Submission } from '../types/submission'
 
 export const GAME_ID = 'game001'
@@ -71,6 +72,50 @@ export function normalizeSubmission(value: unknown, fallbackUid: string): Submis
   }
 }
 
+function normalizeRoundScore(value: unknown): RoundScore | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const raw = value as Record<string, unknown>
+  const championId = isChampionId(raw.championId) ? raw.championId : null
+  const score = Number(raw.score)
+
+  return {
+    championId,
+    score: Number.isFinite(score) ? score : 0,
+    submittedAt: parseOptionalNumber(raw.submittedAt),
+    elapsedMs: parseOptionalNumber(raw.elapsedMs),
+  }
+}
+
+function normalizeParticipantScore(value: unknown): ParticipantScore {
+  if (!value || typeof value !== 'object') {
+    return {
+      total: 0,
+      rounds: {},
+    }
+  }
+
+  const raw = value as Record<string, unknown>
+  const total = Number(raw.total)
+  const rounds: ParticipantScore['rounds'] = {}
+
+  if (raw.rounds && typeof raw.rounds === 'object') {
+    for (const [roundKey, roundValue] of Object.entries(raw.rounds as Record<string, unknown>)) {
+      const normalizedRoundScore = normalizeRoundScore(roundValue)
+      if (normalizedRoundScore) {
+        rounds[roundKey] = normalizedRoundScore
+      }
+    }
+  }
+
+  return {
+    total: Number.isFinite(total) ? total : 0,
+    rounds,
+  }
+}
+
 export function subscribeToCurrentRound(callback: (round: Round | null) => void): Unsubscribe {
   return onValue(ref(db, `games/${GAME_ID}/currentRound`), (snapshot) => {
     callback(parseRound(snapshot.val()))
@@ -91,6 +136,15 @@ export function subscribeToRoundSubmission(
 
   return onValue(path, (snapshot) => {
     callback(normalizeSubmission(snapshot.val(), uid))
+  })
+}
+
+export function subscribeToParticipantScore(
+  uid: string,
+  callback: (score: ParticipantScore) => void,
+): Unsubscribe {
+  return onValue(ref(db, `games/${GAME_ID}/scores/${uid}`), (snapshot) => {
+    callback(normalizeParticipantScore(snapshot.val()))
   })
 }
 
