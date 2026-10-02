@@ -40,9 +40,14 @@ interface ParticipantGamePageProps {
   uid: string
 }
 
+interface RoundSubmissionState {
+  roundNumber: number
+  submission: Submission | null
+}
+
 function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   const [round, setRound] = useState<Round | null>(null)
-  const [submission, setSubmission] = useState<Submission | null>(null)
+  const [submissionState, setSubmissionState] = useState<RoundSubmissionState | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -53,12 +58,24 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
       return undefined
     }
 
+    const currentRoundNumber = round.roundNumber
+
     return subscribeToRoundSubmission(
       uid,
-      round.roundNumber,
-      setSubmission,
+      currentRoundNumber,
+      (nextSubmission) => {
+        setSubmissionState({
+          roundNumber: currentRoundNumber,
+          submission: nextSubmission,
+        })
+      },
     )
   }, [round?.roundNumber, uid])
+
+  const submission =
+    round && submissionState?.roundNumber === round.roundNumber
+      ? submissionState.submission
+      : null
 
   async function handleChampionSelect(championId: ChampionId) {
     if (
