@@ -50,13 +50,45 @@
           ".write": false
         },
         "tiebreak": {
-          ".read": true,
+          ".read": false,
           ".write": false,
+          "status": {
+            ".read": true,
+            ".write": false
+          },
+          "participantUids": {
+            ".read": true,
+            ".write": false
+          },
+          "startedAt": {
+            ".read": true,
+            ".write": false
+          },
+          "endsAt": {
+            ".read": true,
+            ".write": false
+          },
+          "eliminatedChampion": {
+            ".read": true,
+            ".write": false
+          },
+          "voteTotals": {
+            ".read": true,
+            ".write": false
+          },
           "submissions": {
             "$uid": {
               ".read": "auth != null && auth.uid == $uid",
               ".write": false
             }
+          },
+          "finalizedResult": {
+            ".read": false,
+            ".write": false
+          },
+          "outcomes": {
+            ".read": false,
+            ".write": false
           }
         },
         "roundResults": {

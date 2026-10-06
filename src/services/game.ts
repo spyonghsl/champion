@@ -258,48 +258,61 @@ function normalizeFinalResult(value: unknown): FinalResult | null {
   }
 }
 
-function normalizeTiebreak(value: unknown): Tiebreak | null {
+function normalizeTiebreakParticipantUids(value: unknown): string[] {
   if (!value || typeof value !== 'object') {
-    return null
+    return []
   }
 
-  const raw = value as Record<string, unknown>
-  const status = typeof raw.status === 'string' ? raw.status : null
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([, participantValue]) => participantValue === true)
+    .map(([uid]) => uid)
+    .sort((leftUid, rightUid) => leftUid.localeCompare(rightUid))
+}
+
+function normalizeTiebreakVoteTotals(value: unknown): typeof EMPTY_CHAMPION_VOTE_TOTALS {
+  const voteTotals = { ...EMPTY_CHAMPION_VOTE_TOTALS }
+
+  if (!value || typeof value !== 'object') {
+    return voteTotals
+  }
+
+  const rawVoteTotals = value as Record<string, unknown>
+  for (const [championId, rawCount] of Object.entries(rawVoteTotals)) {
+    if (!isChampionId(championId)) {
+      continue
+    }
+
+    voteTotals[championId] = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0
+  }
+
+  return voteTotals
+}
+
+function normalizeTiebreakFromPublicFields(fields: {
+  status: unknown
+  participantUids: unknown
+  startedAt: unknown
+  endsAt: unknown
+  eliminatedChampion: unknown
+  voteTotals: unknown
+}): Tiebreak | null {
+  const status = typeof fields.status === 'string' ? fields.status : null
   if (!status || !VALID_TIEBREAK_STATUSES.includes(status as TiebreakStatus)) {
     return null
   }
 
-  const participantUids = raw.participantUids && typeof raw.participantUids === 'object'
-    ? Object.entries(raw.participantUids as Record<string, unknown>)
-      .filter(([, value]) => value === true)
-      .map(([uid]) => uid)
-      .sort((leftUid, rightUid) => leftUid.localeCompare(rightUid))
-    : []
-
-  const voteTotals = { ...EMPTY_CHAMPION_VOTE_TOTALS }
-  if (raw.voteTotals && typeof raw.voteTotals === 'object') {
-    const rawVoteTotals = raw.voteTotals as Record<string, unknown>
-    for (const [championId, rawCount] of Object.entries(rawVoteTotals)) {
-      if (!isChampionId(championId)) {
-        continue
-      }
-
-      voteTotals[championId] = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0
-    }
-  }
-
   const eliminatedChampion =
-    typeof raw.eliminatedChampion === 'string' && isChampionId(raw.eliminatedChampion)
-      ? raw.eliminatedChampion
+    typeof fields.eliminatedChampion === 'string' && isChampionId(fields.eliminatedChampion)
+      ? fields.eliminatedChampion
       : null
 
   return {
     status: status as TiebreakStatus,
-    participantUids,
-    startedAt: parseOptionalNumber(raw.startedAt),
-    endsAt: parseOptionalNumber(raw.endsAt),
+    participantUids: normalizeTiebreakParticipantUids(fields.participantUids),
+    startedAt: parseOptionalNumber(fields.startedAt),
+    endsAt: parseOptionalNumber(fields.endsAt),
     eliminatedChampion,
-    voteTotals,
+    voteTotals: normalizeTiebreakVoteTotals(fields.voteTotals),
   }
 }
 
@@ -352,9 +365,56 @@ export function subscribeToFinalResult(callback: (finalResult: FinalResult | nul
 }
 
 export function subscribeToTiebreak(callback: (tiebreak: Tiebreak | null) => void): Unsubscribe {
-  return onValue(ref(db, `games/${GAME_ID}/tiebreak`), (snapshot) => {
-    callback(normalizeTiebreak(snapshot.val()))
-  })
+  const state: {
+    status: unknown
+    participantUids: unknown
+    startedAt: unknown
+    endsAt: unknown
+    eliminatedChampion: unknown
+    voteTotals: unknown
+  } = {
+    status: null,
+    participantUids: null,
+    startedAt: null,
+    endsAt: null,
+    eliminatedChampion: null,
+    voteTotals: null,
+  }
+
+  const emitState = () => {
+    callback(normalizeTiebreakFromPublicFields(state))
+  }
+
+  const unsubscribers: Unsubscribe[] = [
+    onValue(ref(db, `games/${GAME_ID}/tiebreak/status`), (snapshot) => {
+      state.status = snapshot.val()
+      emitState()
+    }),
+    onValue(ref(db, `games/${GAME_ID}/tiebreak/participantUids`), (snapshot) => {
+      state.participantUids = snapshot.val()
+      emitState()
+    }),
+    onValue(ref(db, `games/${GAME_ID}/tiebreak/startedAt`), (snapshot) => {
+      state.startedAt = snapshot.val()
+      emitState()
+    }),
+    onValue(ref(db, `games/${GAME_ID}/tiebreak/endsAt`), (snapshot) => {
+      state.endsAt = snapshot.val()
+      emitState()
+    }),
+    onValue(ref(db, `games/${GAME_ID}/tiebreak/eliminatedChampion`), (snapshot) => {
+      state.eliminatedChampion = snapshot.val()
+      emitState()
+    }),
+    onValue(ref(db, `games/${GAME_ID}/tiebreak/voteTotals`), (snapshot) => {
+      state.voteTotals = snapshot.val()
+      emitState()
+    }),
+  ]
+
+  return () => {
+    unsubscribers.forEach((unsubscribe) => unsubscribe())
+  }
 }
 
 export function subscribeToTiebreakSubmission(
