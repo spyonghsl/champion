@@ -84,6 +84,7 @@ interface ParticipantProfileRecord {
 }
 
 interface StoredLeaderboardScoreRecord {
+  score?: unknown;
   elapsedMs?: unknown;
 }
 
@@ -1017,11 +1018,19 @@ export const buildLeaderboard = onCall<BuildLeaderboardRequest>(
 
       let cumulativeResponseMs = 0;
       for (const scoringRound of roundsToInclude) {
-        const elapsedMs = toValidElapsedMs(
-          scoreRounds[String(scoringRound)]?.elapsedMs
+        const roundScore = scoreRounds[String(scoringRound)];
+        const score = toFiniteNumber(roundScore?.score);
+        const elapsedMs = toValidElapsedMs(roundScore?.elapsedMs);
+
+        if (score === null || score <= 0 || elapsedMs === null) {
+          cumulativeResponseMs += MISSING_ELAPSED_MS_PENALTY;
+          continue;
+        }
+
+        cumulativeResponseMs += Math.min(
+          elapsedMs,
+          MISSING_ELAPSED_MS_PENALTY
         );
-        cumulativeResponseMs +=
-          elapsedMs !== null ? elapsedMs : MISSING_ELAPSED_MS_PENALTY;
       }
 
       leaderboardEntries.push({
