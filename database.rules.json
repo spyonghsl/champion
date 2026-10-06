@@ -41,6 +41,10 @@
             ".write": false
           }
         },
+        "leaderboard": {
+          ".read": true,
+          ".write": false
+        },
         "roundResults": {
           "$roundNumber": {
             ".read": false,

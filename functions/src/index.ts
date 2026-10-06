@@ -16,59 +16,89 @@ const CHAMPION_IDS: ChampionId[] = [
   "theseus",
 ];
 
+const SCORING_ROUNDS = [2, 3, 4] as const;
+const MISSING_ELAPSED_MS_PENALTY = 20000;
+
 interface SubmitChampionChoiceRequest {
-    gameId?: unknown;
-    championId?: unknown;
+  gameId?: unknown;
+  championId?: unknown;
 }
 
 interface GameActionRequest {
-    gameId?: unknown;
+  gameId?: unknown;
+}
+
+interface BuildLeaderboardRequest {
+  gameId?: unknown;
 }
 
 interface CurrentRound {
-    roundNumber?: unknown;
-    status?: unknown;
-    isDemo?: unknown;
-    startedAt?: unknown;
-    endsAt?: unknown;
-    eliminatedChampion?: unknown;
+  roundNumber?: unknown;
+  status?: unknown;
+  isDemo?: unknown;
+  startedAt?: unknown;
+  endsAt?: unknown;
+  eliminatedChampion?: unknown;
 }
 
 interface StoredSubmission {
-    uid?: unknown;
-    championId?: unknown;
-    submittedAt?: unknown;
+  uid?: unknown;
+  championId?: unknown;
+  submittedAt?: unknown;
 }
 
 interface GameRoot {
-    currentRound?: CurrentRound;
-    participants?: Record<string, unknown>;
-    submissions?: Record<string, Record<string, StoredSubmission>>;
-    live?: {
-        currentRoundVotes?: Record<string, number>;
-    };
-    scores?: Record<string, { total?: unknown }>;
+  currentRound?: CurrentRound;
+  participants?: Record<string, unknown>;
+  submissions?: Record<string, Record<string, StoredSubmission>>;
+  live?: {
+    currentRoundVotes?: Record<string, number>;
+  };
+  scores?: Record<string, { total?: unknown }>;
 }
 
 interface RoundRecord {
-    roundNumber: number;
-    isDemo: boolean;
-    status: "countdown" | "voting" | "closed" | "result" | "registration";
-    startedAt: number | null;
-    endsAt: number | null;
-    eliminatedChampion: ChampionId | null;
+  roundNumber: number;
+  isDemo: boolean;
+  status: "countdown" | "voting" | "closed" | "result" | "registration";
+  startedAt: number | null;
+  endsAt: number | null;
+  eliminatedChampion: ChampionId | null;
 }
 
 interface RoundScoreRecord {
-    championId: ChampionId | null;
-    score: number;
-    submittedAt: number | null;
-    elapsedMs: number | null;
+  championId: ChampionId | null;
+  score: number;
+  submittedAt: number | null;
+  elapsedMs: number | null;
 }
 
 interface RoundResultRecord {
-    status: "finalized";
-    eliminatedChampion: ChampionId;
+  status: "finalized";
+  eliminatedChampion: ChampionId;
+}
+
+interface ParticipantProfileRecord {
+  nickname?: unknown;
+  selfieUrl?: unknown;
+}
+
+interface StoredLeaderboardScoreRecord {
+  elapsedMs?: unknown;
+}
+
+interface StoredLeaderboardParticipantScoreRecord {
+  total?: unknown;
+  rounds?: Record<string, StoredLeaderboardScoreRecord>;
+}
+
+interface LeaderboardEntryRecord {
+  uid: string;
+  nickname: string;
+  selfieUrl: string | null;
+  totalScore: number;
+  cumulativeResponseMs: number;
+  rank: number;
 }
 
 /**
@@ -79,9 +109,9 @@ interface RoundResultRecord {
 function isChampionId(value: unknown): value is ChampionId {
   return (
     value === "heracles" ||
-        value === "achilles" ||
-        value === "perseus" ||
-        value === "theseus"
+    value === "achilles" ||
+    value === "perseus" ||
+    value === "theseus"
   );
 }
 
@@ -92,6 +122,15 @@ function isChampionId(value: unknown): value is ChampionId {
  */
 function isValidGameId(value: unknown): value is string {
   return typeof value === "string" && /^[a-zA-Z0-9_-]+$/.test(value);
+}
+
+/**
+ * Validates scoring round numbers.
+ * @param {number} value Potential scoring round number.
+ * @return {boolean} True when value is a scoring round number.
+ */
+function isScoringRoundNumber(value: number): value is 2 | 3 | 4 {
+  return value === 2 || value === 3 || value === 4;
 }
 
 /**
@@ -113,6 +152,20 @@ function waitFor(milliseconds: number): Promise<void> {
 function toFiniteNumber(value: unknown): number | null {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+/**
+ * Parses a valid elapsed response time.
+ * @param {unknown} value Value to parse.
+ * @return {number | null} Non-negative elapsed milliseconds or null.
+ */
+function toValidElapsedMs(value: unknown): number | null {
+  const parsed = toFiniteNumber(value);
+  if (parsed === null || parsed < 0) {
+    return null;
+  }
+
+  return parsed;
 }
 
 /**
@@ -158,9 +211,9 @@ function calculateRoundScore(
 
   if (
     submittedAt === null ||
-        startedAt === null ||
-        endsAt === null ||
-        endsAt <= startedAt
+    startedAt === null ||
+    endsAt === null ||
+    endsAt <= startedAt
   ) {
     return {
       championId,
@@ -251,10 +304,10 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
     try {
       const transactionResult = await gameRef.transaction((current) => {
         const game = (
-                    current && typeof current === "object" ?
-                      current :
-                      initialGame
-                ) as GameRoot;
+          current && typeof current === "object" ?
+            current :
+            initialGame
+        ) as GameRoot;
         const currentRound = game.currentRound;
 
         if (!currentRound || typeof currentRound !== "object") {
@@ -542,6 +595,20 @@ export const startNextRound = onCall<GameActionRequest>(
       );
     }
 
+    if (roundNumber === 2 || roundNumber === 3) {
+      const leaderboardSnapshot = await db
+        .ref(`games/${gameId}/leaderboard/roundNumber`)
+        .get();
+      const leaderboardRoundNumber = toFiniteNumber(leaderboardSnapshot.val());
+
+      if (leaderboardRoundNumber !== roundNumber) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Build leaderboard before starting the next round."
+        );
+      }
+    }
+
     const nextRound: RoundRecord = {
       roundNumber: nextRoundNumber,
       isDemo: false,
@@ -582,7 +649,7 @@ export const startNextRound = onCall<GameActionRequest>(
     const verifyRound = verifyValue as RoundRecord;
     if (
       verifyRound.status !== "countdown" ||
-            Number(verifyRound.roundNumber) !== nextRoundNumber
+      Number(verifyRound.roundNumber) !== nextRoundNumber
     ) {
       throw new HttpsError(
         "failed-precondition",
@@ -664,9 +731,9 @@ export const finalizeRound = onCall<GameActionRequest>(
     const votesRef = db.ref(`games/${gameId}/live/currentRoundVotes`);
     const votesSnapshot = await votesRef.get();
     const rawVotes = votesSnapshot.exists() &&
-            votesSnapshot.val() &&
-            typeof votesSnapshot.val() === "object" ?
-            votesSnapshot.val() as Record<string, unknown> :
+      votesSnapshot.val() &&
+      typeof votesSnapshot.val() === "object" ?
+      votesSnapshot.val() as Record<string, unknown> :
       {};
 
     const totals: Record<ChampionId, number> = {
@@ -773,42 +840,42 @@ export const finalizeRound = onCall<GameActionRequest>(
     };
 
     const isScoringRound = !verifyRound.isDemo &&
-            Number.isFinite(roundNumber) &&
-            roundNumber >= 2 &&
-            roundNumber <= 4;
+      Number.isFinite(roundNumber) &&
+      roundNumber >= 2 &&
+      roundNumber <= 4;
 
     if (isScoringRound) {
       const participantsRef = db.ref(`games/${gameId}/participants`);
       const participantsSnapshot = await participantsRef.get();
       const participantsRaw =
-                participantsSnapshot.exists() &&
-                    participantsSnapshot.val() &&
-                    typeof participantsSnapshot.val() === "object" ?
-                    participantsSnapshot.val() as Record<string, unknown> :
-                  {};
+        participantsSnapshot.exists() &&
+          participantsSnapshot.val() &&
+          typeof participantsSnapshot.val() === "object" ?
+          participantsSnapshot.val() as Record<string, unknown> :
+          {};
 
       const submissionsSnapshot = await db
         .ref(`games/${gameId}/submissions/${roundNumber}`)
         .get();
       const submissionsRaw =
-                submissionsSnapshot.exists() &&
-                    submissionsSnapshot.val() &&
-                    typeof submissionsSnapshot.val() === "object" ?
-                    submissionsSnapshot.val() as
-                    Record<string, StoredSubmission> :
-                  {};
+        submissionsSnapshot.exists() &&
+          submissionsSnapshot.val() &&
+          typeof submissionsSnapshot.val() === "object" ?
+          submissionsSnapshot.val() as
+          Record<string, StoredSubmission> :
+          {};
 
       const scoresSnapshot = await db.ref(`games/${gameId}/scores`).get();
       const scoresRaw =
-                scoresSnapshot.exists() &&
-                    scoresSnapshot.val() &&
-                    typeof scoresSnapshot.val() === "object" ?
-                    scoresSnapshot.val() as
-                    Record<
-                        string,
-                        { rounds?: Record<string, RoundScoreRecord> }
-                    > :
-                  {};
+        scoresSnapshot.exists() &&
+          scoresSnapshot.val() &&
+          typeof scoresSnapshot.val() === "object" ?
+          scoresSnapshot.val() as
+          Record<
+            string,
+            { rounds?: Record<string, RoundScoreRecord> }
+          > :
+          {};
 
       for (const uid of Object.keys(participantsRaw)) {
         const roundScore = calculateRoundScore(
@@ -819,10 +886,10 @@ export const finalizeRound = onCall<GameActionRequest>(
         );
 
         const existingRounds =
-                    scoresRaw[uid]?.rounds &&
-                        typeof scoresRaw[uid].rounds === "object" ?
-                      scoresRaw[uid].rounds :
-                      {};
+          scoresRaw[uid]?.rounds &&
+            typeof scoresRaw[uid].rounds === "object" ?
+            scoresRaw[uid].rounds :
+            {};
 
         let deterministicTotal = 0;
         for (const scoringRound of [2, 3, 4]) {
@@ -846,6 +913,161 @@ export const finalizeRound = onCall<GameActionRequest>(
     return {
       ok: true,
       eliminatedChampion: authoritativeEliminatedChampion,
+    };
+  }
+);
+
+export const buildLeaderboard = onCall<BuildLeaderboardRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const db = getDatabase();
+    const currentRoundSnapshot = await db
+      .ref(`games/${gameId}/currentRound`)
+      .get();
+
+    if (!currentRoundSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const currentRoundValue = currentRoundSnapshot.val();
+    if (!currentRoundValue || typeof currentRoundValue !== "object") {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const currentRound = currentRoundValue as RoundRecord;
+    if (currentRound.status !== "result") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Leaderboard can only be built during round result state."
+      );
+    }
+
+    const roundNumber = Number(currentRound.roundNumber);
+    if (!isScoringRoundNumber(roundNumber)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Leaderboard is only available for rounds 2, 3, and 4."
+      );
+    }
+
+    const roundsToInclude = SCORING_ROUNDS.filter(
+      (scoringRound) => scoringRound <= roundNumber
+    );
+
+    const participantsSnapshot = await db
+      .ref(`games/${gameId}/participants`)
+      .get();
+    const participantsRaw =
+      participantsSnapshot.exists() &&
+        participantsSnapshot.val() &&
+        typeof participantsSnapshot.val() === "object" ?
+        participantsSnapshot.val() as Record<string, ParticipantProfileRecord> :
+        {};
+
+    const scoresSnapshot = await db.ref(`games/${gameId}/scores`).get();
+    const scoresRaw =
+      scoresSnapshot.exists() &&
+        scoresSnapshot.val() &&
+        typeof scoresSnapshot.val() === "object" ?
+        scoresSnapshot.val() as
+        Record<string, StoredLeaderboardParticipantScoreRecord> :
+        {};
+
+    const sortedUids = Object.keys(participantsRaw).sort((leftUid, rightUid) =>
+      leftUid.localeCompare(rightUid)
+    );
+
+    const leaderboardEntries: LeaderboardEntryRecord[] = [];
+
+    for (const uid of sortedUids) {
+      const profile = participantsRaw[uid];
+      const nickname =
+        typeof profile?.nickname === "string" && profile.nickname.trim() ?
+          profile.nickname.trim() :
+          uid;
+      const selfieUrl =
+        typeof profile?.selfieUrl === "string" && profile.selfieUrl.trim() ?
+          profile.selfieUrl :
+          null;
+
+      const scoreRecord = scoresRaw[uid];
+      const totalScore = toFiniteNumber(scoreRecord?.total) ?? 0;
+      const scoreRounds = scoreRecord?.rounds ?? {};
+
+      let cumulativeResponseMs = 0;
+      for (const scoringRound of roundsToInclude) {
+        const elapsedMs = toValidElapsedMs(
+          scoreRounds[String(scoringRound)]?.elapsedMs
+        );
+        cumulativeResponseMs +=
+          elapsedMs !== null ? elapsedMs : MISSING_ELAPSED_MS_PENALTY;
+      }
+
+      leaderboardEntries.push({
+        uid,
+        nickname,
+        selfieUrl,
+        totalScore,
+        cumulativeResponseMs,
+        rank: 0,
+      });
+    }
+
+    leaderboardEntries.sort((leftEntry, rightEntry) => {
+      if (leftEntry.totalScore !== rightEntry.totalScore) {
+        return rightEntry.totalScore - leftEntry.totalScore;
+      }
+
+      if (leftEntry.cumulativeResponseMs !== rightEntry.cumulativeResponseMs) {
+        return leftEntry.cumulativeResponseMs - rightEntry.cumulativeResponseMs;
+      }
+
+      return leftEntry.uid.localeCompare(rightEntry.uid);
+    });
+
+    const rankedEntries: LeaderboardEntryRecord[] = leaderboardEntries.map(
+      (entry, index) => ({
+        ...entry,
+        rank: index + 1,
+      })
+    );
+
+    const storedEntries: Record<string, LeaderboardEntryRecord> = {};
+    rankedEntries.forEach((entry, index) => {
+      storedEntries[String(index)] = entry;
+    });
+
+    await db.ref(`games/${gameId}/leaderboard`).set({
+      roundNumber,
+      generatedAt: ServerValue.TIMESTAMP,
+      entries: storedEntries,
+    });
+
+    return {
+      ok: true,
+      roundNumber,
+      entryCount: rankedEntries.length,
     };
   }
 );

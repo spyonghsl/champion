@@ -3,13 +3,15 @@ import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 
 import { auth } from '../firebase/config'
 import { championMap } from '../types/champion'
-import { closeVoting, finalizeRound, startDemoRound, startNextRound } from '../services/gm'
-import { subscribeToCurrentRound } from '../services/game'
+import { buildLeaderboard, closeVoting, finalizeRound, startDemoRound, startNextRound } from '../services/gm'
+import { subscribeToCurrentRound, subscribeToLeaderboard } from '../services/game'
+import type { Leaderboard } from '../types/leaderboard'
 import type { Round } from '../types/round'
 
 function GmPage() {
   const [isReady, setIsReady] = useState(false)
   const [round, setRound] = useState<Round | null>(null)
+  const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null)
   const [isActing, setIsActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,6 +36,7 @@ function GmPage() {
   }, [])
 
   useEffect(() => subscribeToCurrentRound(setRound), [])
+  useEffect(() => subscribeToLeaderboard(setLeaderboard), [])
 
   async function handleStartDemoRound() {
     setIsActing(true)
@@ -81,6 +84,22 @@ function GmPage() {
     } finally {
       setIsActing(false)
     }
+  }
+
+  async function handleBuildLeaderboard() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await buildLeaderboard()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to build leaderboard.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  function isScoringRound(roundNumber: number): boolean {
+    return roundNumber === 2 || roundNumber === 3 || roundNumber === 4
   }
 
   function nextRoundLabel(roundNumber: number): string | null {
@@ -140,6 +159,8 @@ function GmPage() {
 
     if (round.status === 'result') {
       const buttonLabel = nextRoundLabel(round.roundNumber)
+      const hasLeaderboardForRound = leaderboard?.roundNumber === round.roundNumber
+      const needsLeaderboardBuild = isScoringRound(round.roundNumber) && !hasLeaderboardForRound
 
       return (
         <>
@@ -147,7 +168,18 @@ function GmPage() {
             ? <p>Eliminated: {championMap[round.eliminatedChampion].displayName}</p>
             : <p>Eliminated: Pending</p>}
 
-          {buttonLabel
+          {needsLeaderboardBuild
+            ? (
+              <button
+                type="button"
+                onClick={() => void handleBuildLeaderboard()}
+                disabled={isActing || !isReady}
+              >
+                {round.roundNumber === 4 ? 'Build Final Leaderboard' : 'Build Leaderboard'}
+              </button>
+            ) : null}
+
+          {!needsLeaderboardBuild && buttonLabel
             ? (
               <button
                 type="button"
@@ -157,7 +189,11 @@ function GmPage() {
                 {buttonLabel}
               </button>
             )
-            : <p>Scoring rounds complete</p>}
+            : null}
+
+          {!needsLeaderboardBuild && round.roundNumber === 4
+            ? <p>Game Complete</p>
+            : null}
         </>
       )
     }

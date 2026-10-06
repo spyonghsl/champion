@@ -6,7 +6,9 @@ import {
   subscribeToCurrentRoundVotes,
   subscribeToRegisteredCount,
 } from '../services/display'
+import { subscribeToLeaderboard } from '../services/game'
 import { CHAMPIONS, EMPTY_CHAMPION_VOTE_TOTALS, championMap, type ChampionVoteTotals } from '../types/champion'
+import type { LeaderboardEntry } from '../types/leaderboard'
 import type { Round } from '../types/round'
 
 // Fixed positioning escapes the width-constrained #root to fill the viewport.
@@ -85,14 +87,108 @@ const eliminatedChampionStyle: CSSProperties = {
   lineHeight: 1.1,
 }
 
+const leaderboardWrapStyle: CSSProperties = {
+  width: 'min(1200px, 100%)',
+  marginTop: '2rem',
+  padding: '0 2rem',
+}
+
+const leaderboardTableStyle: CSSProperties = {
+  width: '100%',
+  borderCollapse: 'collapse',
+  background: '#111827',
+  borderRadius: '12px',
+  overflow: 'hidden',
+}
+
+const leaderboardHeaderCellStyle: CSSProperties = {
+  textAlign: 'left',
+  padding: '0.75rem 1rem',
+  borderBottom: '1px solid #374151',
+  fontSize: '1.4rem',
+}
+
+const leaderboardCellStyle: CSSProperties = {
+  padding: '0.75rem 1rem',
+  borderBottom: '1px solid #1f2937',
+  fontSize: '1.5rem',
+}
+
+const selfieStyle: CSSProperties = {
+  width: '48px',
+  height: '48px',
+  borderRadius: '50%',
+  objectFit: 'cover',
+  border: '1px solid #4b5563',
+  background: '#0f172a',
+}
+
+const finalTitleStyle: CSSProperties = {
+  margin: '1rem 0 0',
+  fontSize: '6vmin',
+  letterSpacing: '0.12em',
+  fontWeight: 700,
+}
+
+const finalSubtitleStyle: CSSProperties = {
+  margin: '0.25rem 0 0',
+  fontSize: '2.4vmin',
+  letterSpacing: '0.08em',
+}
+
 function MainDisplayPage() {
   const [count, setCount] = useState(0)
   const [currentRound, setCurrentRound] = useState<Round | null>(null)
   const [voteTotals, setVoteTotals] = useState<ChampionVoteTotals>(EMPTY_CHAMPION_VOTE_TOTALS)
+  const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([])
+  const [leaderboardRoundNumber, setLeaderboardRoundNumber] = useState<number | null>(null)
 
   useEffect(() => subscribeToRegisteredCount(setCount), [])
   useEffect(() => subscribeToCurrentRoundForDisplay(setCurrentRound), [])
   useEffect(() => subscribeToCurrentRoundVotes(setVoteTotals), [])
+  useEffect(
+    () =>
+      subscribeToLeaderboard((leaderboard) => {
+        setLeaderboardRoundNumber(leaderboard?.roundNumber ?? null)
+        setLeaderboardEntries(leaderboard?.entries ?? [])
+      }),
+    [],
+  )
+
+  function isScoringRound(roundNumber: number): boolean {
+    return roundNumber === 2 || roundNumber === 3 || roundNumber === 4
+  }
+
+  function renderLeaderboardTable(entries: LeaderboardEntry[]) {
+    return (
+      <div style={leaderboardWrapStyle}>
+        <table style={leaderboardTableStyle}>
+          <thead>
+            <tr>
+              <th style={leaderboardHeaderCellStyle}>Rank</th>
+              <th style={leaderboardHeaderCellStyle}>Selfie</th>
+              <th style={leaderboardHeaderCellStyle}>Nickname</th>
+              <th style={leaderboardHeaderCellStyle}>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr key={entry.uid}>
+                <td style={leaderboardCellStyle}>{entry.rank}</td>
+                <td style={leaderboardCellStyle}>
+                  {entry.selfieUrl
+                    ? <img src={entry.selfieUrl} alt={entry.nickname} style={selfieStyle} />
+                    : <div style={selfieStyle} />}
+                </td>
+                <td style={leaderboardCellStyle}>{entry.nickname}</td>
+                <td style={leaderboardCellStyle}>{entry.totalScore}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
 
   function renderVotes() {
     return (
@@ -140,6 +236,31 @@ function MainDisplayPage() {
     }
 
     if (currentRound.status === 'result') {
+      const hasLeaderboardForRound =
+        isScoringRound(currentRound.roundNumber) &&
+        leaderboardRoundNumber === currentRound.roundNumber
+
+      if (hasLeaderboardForRound) {
+        const topTen = leaderboardEntries.slice(0, 10)
+
+        if (currentRound.roundNumber === 4) {
+          return (
+            <>
+              <p style={finalTitleStyle}>FINAL LEADERBOARD</p>
+              <p style={finalSubtitleStyle}>Top 5</p>
+              {renderLeaderboardTable(topTen.slice(0, 5))}
+            </>
+          )
+        }
+
+        return (
+          <>
+            <p style={labelStyle}>Leaderboard</p>
+            {renderLeaderboardTable(topTen)}
+          </>
+        )
+      }
+
       const eliminatedName = currentRound.eliminatedChampion
         ? championMap[currentRound.eliminatedChampion].displayName
         : 'Pending'

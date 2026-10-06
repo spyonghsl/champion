@@ -9,6 +9,7 @@ import {
   subscribeToParticipantScore,
   submitChampionChoice,
   subscribeToCurrentRound,
+  subscribeToLeaderboard,
   subscribeToRoundSubmission,
 } from '../services/game'
 
@@ -51,11 +52,22 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   const [round, setRound] = useState<Round | null>(null)
   const [submissionState, setSubmissionState] = useState<RoundSubmissionState | null>(null)
   const [participantScore, setParticipantScore] = useState<ParticipantScore | null>(null)
+  const [leaderboardRoundNumber, setLeaderboardRoundNumber] = useState<number | null>(null)
+  const [currentRank, setCurrentRank] = useState<number | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => subscribeToCurrentRound(setRound), [])
   useEffect(() => subscribeToParticipantScore(uid, setParticipantScore), [uid])
+  useEffect(
+    () =>
+      subscribeToLeaderboard((leaderboard) => {
+        setLeaderboardRoundNumber(leaderboard?.roundNumber ?? null)
+        const matchedEntry = leaderboard?.entries.find((entry) => entry.uid === uid) ?? null
+        setCurrentRank(matchedEntry?.rank ?? null)
+      }),
+    [uid],
+  )
 
   useEffect(() => {
     if (!round?.roundNumber) {
@@ -133,6 +145,7 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
       : 'Pending'
     const roundScore = participantScore?.rounds[String(round.roundNumber)] ?? null
     const totalScore = participantScore?.total ?? 0
+    const showCurrentRank = leaderboardRoundNumber === round.roundNumber && currentRank !== null
     const didSubmit = Boolean(submission)
     const hasEliminatedChampion = Boolean(round.eliminatedChampion)
 
@@ -156,6 +169,7 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
             <>
               {didSubmit ? <p>Round score: {roundScore ? roundScore.score : 0}</p> : null}
               <p>Total score: {totalScore}</p>
+              {showCurrentRank ? <p>Current rank: {currentRank}</p> : null}
             </>
           )}
       </section>

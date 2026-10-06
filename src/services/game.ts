@@ -3,6 +3,7 @@ import type { Unsubscribe } from 'firebase/database'
 import { httpsCallable } from 'firebase/functions'
 
 import { db, functions } from '../firebase/config'
+import type { Leaderboard, LeaderboardEntry } from '../types/leaderboard'
 import { isChampionId, type ChampionId } from '../types/champion'
 import type { Round, RoundStatus } from '../types/round'
 import type { ParticipantScore, RoundScore } from '../types/score'
@@ -116,6 +117,71 @@ function normalizeParticipantScore(value: unknown): ParticipantScore {
   }
 }
 
+function normalizeLeaderboardEntry(value: unknown): LeaderboardEntry | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const raw = value as Record<string, unknown>
+  const uid = typeof raw.uid === 'string' ? raw.uid : ''
+  const nickname = typeof raw.nickname === 'string' ? raw.nickname : ''
+  const selfieUrl = typeof raw.selfieUrl === 'string' && raw.selfieUrl.trim() ? raw.selfieUrl : null
+  const totalScore = Number(raw.totalScore)
+  const cumulativeResponseMs = Number(raw.cumulativeResponseMs)
+  const rank = Number(raw.rank)
+
+  if (!uid || !nickname || !Number.isFinite(rank)) {
+    return null
+  }
+
+  return {
+    uid,
+    nickname,
+    selfieUrl,
+    totalScore: Number.isFinite(totalScore) ? totalScore : 0,
+    cumulativeResponseMs: Number.isFinite(cumulativeResponseMs) ? cumulativeResponseMs : 0,
+    rank,
+  }
+}
+
+function normalizeLeaderboard(value: unknown): Leaderboard | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const raw = value as Record<string, unknown>
+  const roundNumber = Number(raw.roundNumber)
+  if (!Number.isFinite(roundNumber)) {
+    return null
+  }
+
+  const normalizedEntries: LeaderboardEntry[] = []
+  const rawEntries = raw.entries
+
+  if (rawEntries && typeof rawEntries === 'object') {
+    for (const entryValue of Object.values(rawEntries as Record<string, unknown>)) {
+      const normalizedEntry = normalizeLeaderboardEntry(entryValue)
+      if (normalizedEntry) {
+        normalizedEntries.push(normalizedEntry)
+      }
+    }
+  }
+
+  normalizedEntries.sort((leftEntry, rightEntry) => {
+    if (leftEntry.rank !== rightEntry.rank) {
+      return leftEntry.rank - rightEntry.rank
+    }
+
+    return leftEntry.uid.localeCompare(rightEntry.uid)
+  })
+
+  return {
+    roundNumber,
+    generatedAt: parseOptionalNumber(raw.generatedAt),
+    entries: normalizedEntries,
+  }
+}
+
 export function subscribeToCurrentRound(callback: (round: Round | null) => void): Unsubscribe {
   return onValue(ref(db, `games/${GAME_ID}/currentRound`), (snapshot) => {
     callback(parseRound(snapshot.val()))
@@ -145,6 +211,12 @@ export function subscribeToParticipantScore(
 ): Unsubscribe {
   return onValue(ref(db, `games/${GAME_ID}/scores/${uid}`), (snapshot) => {
     callback(normalizeParticipantScore(snapshot.val()))
+  })
+}
+
+export function subscribeToLeaderboard(callback: (leaderboard: Leaderboard | null) => void): Unsubscribe {
+  return onValue(ref(db, `games/${GAME_ID}/leaderboard`), (snapshot) => {
+    callback(normalizeLeaderboard(snapshot.val()))
   })
 }
 

@@ -16,6 +16,11 @@ interface StartNextRoundResult extends CallableResult {
     roundNumber: number
 }
 
+interface BuildLeaderboardResult extends CallableResult {
+    roundNumber: number
+    entryCount: number
+}
+
 function extractCallableCode(error: unknown): string {
     const code =
         typeof error === 'object' && error && 'code' in error
@@ -129,5 +134,30 @@ export async function startNextRound(): Promise<number> {
         }
 
         throw new Error('Failed to start the next round.', { cause: error })
+    }
+}
+
+export async function buildLeaderboard(): Promise<void> {
+    const callable = httpsCallable<{ gameId: string }, BuildLeaderboardResult>(
+        functions,
+        'buildLeaderboard',
+    )
+
+    try {
+        await callable({ gameId: GAME_ID })
+    } catch (error: unknown) {
+        const code = extractCallableCode(error)
+
+        if (code === 'unauthenticated') {
+            throw new Error('You must be signed in to build the leaderboard.', { cause: error })
+        }
+        if (code === 'invalid-argument') {
+            throw new Error('The game id was invalid.', { cause: error })
+        }
+        if (code === 'failed-precondition') {
+            throw new Error('Leaderboard cannot be built in this round state.', { cause: error })
+        }
+
+        throw new Error('Failed to build leaderboard.', { cause: error })
     }
 }
