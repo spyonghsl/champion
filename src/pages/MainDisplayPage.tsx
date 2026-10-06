@@ -6,10 +6,12 @@ import {
   subscribeToCurrentRoundVotes,
   subscribeToRegisteredCount,
 } from '../services/display'
-import { subscribeToLeaderboard } from '../services/game'
+import { subscribeToFinalResult, subscribeToLeaderboard, subscribeToTiebreak } from '../services/game'
 import { CHAMPIONS, EMPTY_CHAMPION_VOTE_TOTALS, championMap, type ChampionVoteTotals } from '../types/champion'
+import type { FinalTopFiveEntry } from '../types/finalResult'
 import type { LeaderboardEntry } from '../types/leaderboard'
 import type { Round } from '../types/round'
+import type { Tiebreak } from '../types/tiebreak'
 
 // Fixed positioning escapes the width-constrained #root to fill the viewport.
 const containerStyle: CSSProperties = {
@@ -142,6 +144,9 @@ function MainDisplayPage() {
   const [voteTotals, setVoteTotals] = useState<ChampionVoteTotals>(EMPTY_CHAMPION_VOTE_TOTALS)
   const [leaderboardEntries, setLeaderboardEntries] = useState<LeaderboardEntry[]>([])
   const [leaderboardRoundNumber, setLeaderboardRoundNumber] = useState<number | null>(null)
+  const [finalTopFive, setFinalTopFive] = useState<FinalTopFiveEntry[]>([])
+  const [finalResultStatus, setFinalResultStatus] = useState<string | null>(null)
+  const [tiebreak, setTiebreak] = useState<Tiebreak | null>(null)
 
   useEffect(() => subscribeToRegisteredCount(setCount), [])
   useEffect(() => subscribeToCurrentRoundForDisplay(setCurrentRound), [])
@@ -154,6 +159,15 @@ function MainDisplayPage() {
       }),
     [],
   )
+  useEffect(
+    () =>
+      subscribeToFinalResult((finalResult) => {
+        setFinalResultStatus(finalResult?.status ?? null)
+        setFinalTopFive(finalResult?.topFive ?? [])
+      }),
+    [],
+  )
+  useEffect(() => subscribeToTiebreak(setTiebreak), [])
 
   function isScoringRound(roundNumber: number): boolean {
     return roundNumber === 2 || roundNumber === 3 || roundNumber === 4
@@ -190,6 +204,52 @@ function MainDisplayPage() {
     )
   }
 
+  function renderFinalTopFiveTable(entries: FinalTopFiveEntry[]) {
+    return (
+      <div style={leaderboardWrapStyle}>
+        <table style={leaderboardTableStyle}>
+          <thead>
+            <tr>
+              <th style={leaderboardHeaderCellStyle}>Rank</th>
+              <th style={leaderboardHeaderCellStyle}>Selfie</th>
+              <th style={leaderboardHeaderCellStyle}>Nickname</th>
+              <th style={leaderboardHeaderCellStyle}>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr key={entry.uid}>
+                <td style={leaderboardCellStyle}>{entry.finalRank}</td>
+                <td style={leaderboardCellStyle}>
+                  {entry.selfieUrl
+                    ? <img src={entry.selfieUrl} alt={entry.nickname} style={selfieStyle} />
+                    : <div style={selfieStyle} />}
+                </td>
+                <td style={leaderboardCellStyle}>{entry.nickname}</td>
+                <td style={leaderboardCellStyle}>{entry.totalScore}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  function renderTiebreakVotes() {
+    const tiebreakVoteTotals = tiebreak?.voteTotals ?? EMPTY_CHAMPION_VOTE_TOTALS
+
+    return (
+      <div style={votesRowStyle}>
+        {CHAMPIONS.map((champion) => (
+          <article key={champion.id} style={voteCardStyle}>
+            <p style={championNameStyle}>{champion.displayName}</p>
+            <p style={voteCountStyle}>{tiebreakVoteTotals[champion.id] ?? 0}</p>
+          </article>
+        ))}
+      </div>
+    )
+  }
+
   function renderVotes() {
     return (
       <div style={votesRowStyle}>
@@ -204,6 +264,43 @@ function MainDisplayPage() {
   }
 
   function renderRoundContent() {
+    if (finalResultStatus === 'finalized' && finalTopFive.length > 0) {
+      return (
+        <>
+          <p style={finalTitleStyle}>FINAL TOP 5</p>
+          {renderFinalTopFiveTable(finalTopFive.slice(0, 5))}
+        </>
+      )
+    }
+
+    if (finalResultStatus === 'tiebreak_required') {
+      if (tiebreak?.status === 'voting' || tiebreak?.status === 'closed') {
+        return (
+          <>
+            <p style={finalTitleStyle}>TIEBREAK REQUIRED</p>
+            <p style={finalSubtitleStyle}>Live Tiebreak Votes</p>
+            {renderTiebreakVotes()}
+          </>
+        )
+      }
+
+      if (tiebreak?.status === 'countdown') {
+        return (
+          <>
+            <p style={finalTitleStyle}>TIEBREAK REQUIRED</p>
+            <p style={finalSubtitleStyle}>Tiebreak starts in...</p>
+          </>
+        )
+      }
+
+      return (
+        <>
+          <p style={finalTitleStyle}>TIEBREAK REQUIRED</p>
+          <p style={finalSubtitleStyle}>Preparing final ranking...</p>
+        </>
+      )
+    }
+
     if (!currentRound || currentRound.status === 'registration') {
       return (
         <>

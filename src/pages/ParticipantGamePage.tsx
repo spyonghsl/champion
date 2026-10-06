@@ -2,12 +2,18 @@ import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import { CHAMPIONS, championMap, type ChampionId } from '../types/champion'
+import type { FinalResult } from '../types/finalResult'
 import type { Round } from '../types/round'
 import type { ParticipantScore } from '../types/score'
 import type { Submission } from '../types/submission'
+import type { Tiebreak, TiebreakSubmission } from '../types/tiebreak'
 import {
+  subscribeToFinalResult,
   subscribeToParticipantScore,
+  subscribeToTiebreak,
+  subscribeToTiebreakSubmission,
   submitChampionChoice,
+  submitTiebreakChoice,
   subscribeToCurrentRound,
   subscribeToLeaderboard,
   subscribeToRoundSubmission,
@@ -54,7 +60,11 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   const [participantScore, setParticipantScore] = useState<ParticipantScore | null>(null)
   const [leaderboardRoundNumber, setLeaderboardRoundNumber] = useState<number | null>(null)
   const [currentRank, setCurrentRank] = useState<number | null>(null)
+  const [finalResult, setFinalResult] = useState<FinalResult | null>(null)
+  const [tiebreak, setTiebreak] = useState<Tiebreak | null>(null)
+  const [tiebreakSubmission, setTiebreakSubmission] = useState<TiebreakSubmission | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSubmittingTiebreak, setIsSubmittingTiebreak] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => subscribeToCurrentRound(setRound), [])
@@ -68,6 +78,9 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
       }),
     [uid],
   )
+  useEffect(() => subscribeToFinalResult(setFinalResult), [])
+  useEffect(() => subscribeToTiebreak(setTiebreak), [])
+  useEffect(() => subscribeToTiebreakSubmission(uid, setTiebreakSubmission), [uid])
 
   useEffect(() => {
     if (!round?.roundNumber) {
@@ -123,9 +136,124 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     }
   }
 
+  async function handleTiebreakChampionSelect(championId: ChampionId) {
+    if (
+      !tiebreak ||
+      tiebreak.status !== 'voting' ||
+      tiebreakSubmission ||
+      isSubmittingTiebreak
+    ) {
+      return
+    }
+
+    setIsSubmittingTiebreak(true)
+    setError(null)
+
+    try {
+      await submitTiebreakChoice(championId)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Your tiebreak selection could not be submitted.',
+      )
+    } finally {
+      setIsSubmittingTiebreak(false)
+    }
+  }
+
   const selectedChampion = submission
     ? championMap[submission.championId].displayName
     : null
+  const selectedTiebreakChampion = tiebreakSubmission
+    ? championMap[tiebreakSubmission.championId].displayName
+    : null
+
+  if (finalResult?.status === 'finalized') {
+    const finalTopFiveEntry = finalResult.topFive.find((entry) => entry.uid === uid) ?? null
+
+    return (
+      <section>
+        {finalTopFiveEntry
+          ? <p>Your final rank: {finalTopFiveEntry.finalRank}</p>
+          : <p>Game complete</p>}
+      </section>
+    )
+  }
+
+  if (finalResult?.status === 'tiebreak_required') {
+    const participantUids = tiebreak?.participantUids ?? []
+    const isTiebreakParticipant = participantUids.includes(uid)
+
+    if (!isTiebreakParticipant) {
+      return <p>Final ranking is being resolved.</p>
+    }
+
+    if (!tiebreak || tiebreak.status === 'idle') {
+      return <p>Tiebreak is about to start.</p>
+    }
+
+    if (tiebreak.status === 'countdown') {
+      return <p>Tiebreak countdown in progress...</p>
+    }
+
+    if (tiebreak.status === 'voting') {
+      if (tiebreakSubmission) {
+        return (
+          <section>
+            <p>You chose {selectedTiebreakChampion}</p>
+          </section>
+        )
+      }
+
+      return (
+        <section>
+          <p>Choose your tiebreak champion</p>
+
+          <div style={gridStyle}>
+            {CHAMPIONS.map((champion) => {
+              const isDisabled = isSubmittingTiebreak
+
+              return (
+                <button
+                  key={champion.id}
+                  type="button"
+                  onClick={() => void handleTiebreakChampionSelect(champion.id)}
+                  disabled={isDisabled}
+                  style={isDisabled ? disabledCardStyle : cardStyle}
+                >
+                  {champion.displayName}
+                </button>
+              )
+            })}
+          </div>
+
+          {error ? <p role="alert">{error}</p> : null}
+        </section>
+      )
+    }
+
+    if (tiebreak.status === 'closed' || tiebreak.status === 'result') {
+      const eliminatedChampionName = tiebreak.eliminatedChampion
+        ? championMap[tiebreak.eliminatedChampion].displayName
+        : 'Pending'
+
+      return (
+        <section>
+          <p>Tiebreak eliminated: {eliminatedChampionName}</p>
+          {tiebreakSubmission && tiebreak.eliminatedChampion
+            ? (
+              <p>
+                {tiebreakSubmission.championId === tiebreak.eliminatedChampion
+                  ? 'Your tiebreak champion was eliminated.'
+                  : 'Your tiebreak champion survived.'}
+              </p>
+            )
+            : null}
+        </section>
+      )
+    }
+  }
 
   if (
     !round ||

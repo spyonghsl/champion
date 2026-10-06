@@ -21,6 +21,10 @@ interface BuildLeaderboardResult extends CallableResult {
     entryCount: number
 }
 
+interface FinalResultActionResult extends CallableResult {
+    status: 'tiebreak_required' | 'finalized'
+}
+
 function extractCallableCode(error: unknown): string {
     const code =
         typeof error === 'object' && error && 'code' in error
@@ -159,5 +163,105 @@ export async function buildLeaderboard(): Promise<void> {
         }
 
         throw new Error('Failed to build leaderboard.', { cause: error })
+    }
+}
+
+export async function prepareFinalResult(): Promise<void> {
+    const callable = httpsCallable<{ gameId: string }, FinalResultActionResult>(
+        functions,
+        'prepareFinalResult',
+    )
+
+    try {
+        await callable({ gameId: GAME_ID })
+    } catch (error: unknown) {
+        const code = extractCallableCode(error)
+
+        if (code === 'unauthenticated') {
+            throw new Error('You must be signed in to prepare final result.', { cause: error })
+        }
+        if (code === 'invalid-argument') {
+            throw new Error('The game id was invalid.', { cause: error })
+        }
+        if (code === 'failed-precondition') {
+            throw new Error('Final result cannot be prepared yet.', { cause: error })
+        }
+
+        throw new Error('Failed to prepare final result.', { cause: error })
+    }
+}
+
+export async function startTiebreak(): Promise<void> {
+    const callable = httpsCallable<{ gameId: string }, CallableResult>(
+        functions,
+        'startTiebreak',
+    )
+
+    try {
+        await callable({ gameId: GAME_ID })
+    } catch (error: unknown) {
+        const code = extractCallableCode(error)
+
+        if (code === 'unauthenticated') {
+            throw new Error('You must be signed in to start tiebreak.', { cause: error })
+        }
+        if (code === 'invalid-argument') {
+            throw new Error('The game id was invalid.', { cause: error })
+        }
+        if (code === 'failed-precondition') {
+            throw new Error('Tiebreak cannot be started right now.', { cause: error })
+        }
+
+        throw new Error('Failed to start tiebreak.', { cause: error })
+    }
+}
+
+export async function closeTiebreakVoting(): Promise<void> {
+    const callable = httpsCallable<{ gameId: string }, CallableResult>(
+        functions,
+        'closeTiebreakVoting',
+    )
+
+    try {
+        await callable({ gameId: GAME_ID })
+    } catch (error: unknown) {
+        const code = extractCallableCode(error)
+
+        if (code === 'unauthenticated') {
+            throw new Error('You must be signed in to close tiebreak voting.', { cause: error })
+        }
+        if (code === 'invalid-argument') {
+            throw new Error('The game id was invalid.', { cause: error })
+        }
+        if (code === 'failed-precondition') {
+            throw new Error('Tiebreak voting is not currently open.', { cause: error })
+        }
+
+        throw new Error('Failed to close tiebreak voting.', { cause: error })
+    }
+}
+
+export async function finalizeTiebreak(): Promise<void> {
+    const callable = httpsCallable<{ gameId: string }, FinalResultActionResult>(
+        functions,
+        'finalizeTiebreak',
+    )
+
+    try {
+        await callable({ gameId: GAME_ID })
+    } catch (error: unknown) {
+        const code = extractCallableCode(error)
+
+        if (code === 'unauthenticated') {
+            throw new Error('You must be signed in to finalize tiebreak.', { cause: error })
+        }
+        if (code === 'invalid-argument') {
+            throw new Error('The game id was invalid.', { cause: error })
+        }
+        if (code === 'failed-precondition') {
+            throw new Error('Tiebreak cannot be finalized right now.', { cause: error })
+        }
+
+        throw new Error('Failed to finalize tiebreak.', { cause: error })
     }
 }

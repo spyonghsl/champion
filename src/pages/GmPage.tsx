@@ -2,16 +2,29 @@ import { useEffect, useState } from 'react'
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
 
 import { auth } from '../firebase/config'
-import { championMap } from '../types/champion'
-import { buildLeaderboard, closeVoting, finalizeRound, startDemoRound, startNextRound } from '../services/gm'
-import { subscribeToCurrentRound, subscribeToLeaderboard } from '../services/game'
+import {
+  buildLeaderboard,
+  closeTiebreakVoting,
+  closeVoting,
+  finalizeRound,
+  finalizeTiebreak,
+  prepareFinalResult,
+  startDemoRound,
+  startNextRound,
+  startTiebreak,
+} from '../services/gm'
+import { subscribeToCurrentRound, subscribeToFinalResult, subscribeToLeaderboard, subscribeToTiebreak } from '../services/game'
+import type { FinalResult } from '../types/finalResult'
 import type { Leaderboard } from '../types/leaderboard'
 import type { Round } from '../types/round'
+import type { Tiebreak } from '../types/tiebreak'
 
 function GmPage() {
   const [isReady, setIsReady] = useState(false)
   const [round, setRound] = useState<Round | null>(null)
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null)
+  const [finalResult, setFinalResult] = useState<FinalResult | null>(null)
+  const [tiebreak, setTiebreak] = useState<Tiebreak | null>(null)
   const [isActing, setIsActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -37,6 +50,8 @@ function GmPage() {
 
   useEffect(() => subscribeToCurrentRound(setRound), [])
   useEffect(() => subscribeToLeaderboard(setLeaderboard), [])
+  useEffect(() => subscribeToFinalResult(setFinalResult), [])
+  useEffect(() => subscribeToTiebreak(setTiebreak), [])
 
   async function handleStartDemoRound() {
     setIsActing(true)
@@ -93,6 +108,54 @@ function GmPage() {
       await buildLeaderboard()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to build leaderboard.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  async function handlePrepareFinalResult() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await prepareFinalResult()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to prepare final result.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  async function handleStartTiebreak() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await startTiebreak()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to start tiebreak.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  async function handleCloseTiebreakVoting() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await closeTiebreakVoting()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to close tiebreak voting.')
+    } finally {
+      setIsActing(false)
+    }
+  }
+
+  async function handleFinalizeTiebreak() {
+    setIsActing(true)
+    setError(null)
+    try {
+      await finalizeTiebreak()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to finalize tiebreak.')
     } finally {
       setIsActing(false)
     }
@@ -162,12 +225,85 @@ function GmPage() {
       const hasLeaderboardForRound = leaderboard?.roundNumber === round.roundNumber
       const needsLeaderboardBuild = isScoringRound(round.roundNumber) && !hasLeaderboardForRound
 
+      if (!needsLeaderboardBuild && round.roundNumber === 4) {
+        if (!finalResult) {
+          return (
+            <button
+              type="button"
+              onClick={() => void handlePrepareFinalResult()}
+              disabled={isActing || !isReady}
+            >
+              Prepare Final Result
+            </button>
+          )
+        }
+
+        if (finalResult.status === 'finalized') {
+          return (
+            <>
+              <p>Final Result Ready</p>
+              <p>Game Complete</p>
+            </>
+          )
+        }
+
+        if (finalResult.status === 'tiebreak_required') {
+          return (
+            <>
+              <p>Tiebreak Required</p>
+              {tiebreak?.status === 'countdown'
+                ? <p>Tiebreak countdown in progress...</p>
+                : null}
+              {tiebreak?.status === 'voting'
+                ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleCloseTiebreakVoting()}
+                    disabled={isActing || !isReady}
+                  >
+                    Close Tiebreak Voting
+                  </button>
+                )
+                : null}
+              {tiebreak?.status === 'closed' || tiebreak?.status === 'result'
+                ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleFinalizeTiebreak()}
+                    disabled={isActing || !isReady}
+                  >
+                    Finalize Tiebreak
+                  </button>
+                )
+                : null}
+              {!tiebreak || tiebreak.status === 'idle'
+                ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleStartTiebreak()}
+                    disabled={isActing || !isReady}
+                  >
+                    Start Tiebreak
+                  </button>
+                )
+                : null}
+            </>
+          )
+        }
+
+        return (
+          <button
+            type="button"
+            onClick={() => void handlePrepareFinalResult()}
+            disabled={isActing || !isReady}
+          >
+            Prepare Final Result
+          </button>
+        )
+      }
+
       return (
         <>
-          {round.eliminatedChampion
-            ? <p>Eliminated: {championMap[round.eliminatedChampion].displayName}</p>
-            : <p>Eliminated: Pending</p>}
-
           {needsLeaderboardBuild
             ? (
               <button
@@ -189,10 +325,6 @@ function GmPage() {
                 {buttonLabel}
               </button>
             )
-            : null}
-
-          {!needsLeaderboardBuild && round.roundNumber === 4
-            ? <p>Game Complete</p>
             : null}
         </>
       )

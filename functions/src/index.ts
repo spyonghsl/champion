@@ -32,6 +32,11 @@ interface BuildLeaderboardRequest {
   gameId?: unknown;
 }
 
+interface SubmitTiebreakChoiceRequest {
+  gameId?: unknown;
+  championId?: unknown;
+}
+
 interface CurrentRound {
   roundNumber?: unknown;
   status?: unknown;
@@ -100,6 +105,53 @@ interface LeaderboardEntryRecord {
   totalScore: number;
   cumulativeResponseMs: number;
   rank: number;
+}
+
+type FinalResultStatus = "pending" | "tiebreak_required" | "finalized";
+
+type TiebreakStatus =
+  "idle" |
+  "countdown" |
+  "voting" |
+  "closed" |
+  "result";
+
+interface FinalTopFiveEntryRecord {
+  uid: string;
+  nickname: string;
+  selfieUrl: string | null;
+  totalScore: number;
+  cumulativeResponseMs: number;
+  finalRank: number;
+}
+
+interface StoredFinalResultRecord {
+  status?: unknown;
+  generatedAt?: unknown;
+  topFive?: unknown;
+  tiedUids?: unknown;
+  randomDrawUsed?: unknown;
+  randomDrawOrder?: unknown;
+}
+
+interface TiebreakRecord {
+  status?: unknown;
+  participantUids?: unknown;
+  startedAt?: unknown;
+  endsAt?: unknown;
+  eliminatedChampion?: unknown;
+  voteTotals?: unknown;
+  submissions?: unknown;
+}
+
+interface TiebreakSubmissionRecord {
+  uid?: unknown;
+  championId?: unknown;
+  submittedAt?: unknown;
+}
+
+interface TiebreakFinalizedResultRecord {
+  eliminatedChampion: ChampionId;
 }
 
 /**
@@ -178,6 +230,255 @@ function toValidElapsedMs(value: unknown): number | null {
  */
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Parses leaderboard entries from an unknown value.
+ * @param {unknown} value Raw leaderboard entries.
+ * @return {LeaderboardEntryRecord[]} Normalized entries sorted by rank.
+ */
+function parseLeaderboardEntries(value: unknown): LeaderboardEntryRecord[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const entries: LeaderboardEntryRecord[] = [];
+
+  for (const rawEntry of Object.values(value as Record<string, unknown>)) {
+    if (!rawEntry || typeof rawEntry !== "object") {
+      continue;
+    }
+
+    const record = rawEntry as Record<string, unknown>;
+    const uid = typeof record.uid === "string" ? record.uid : "";
+    const nickname = typeof record.nickname === "string" ? record.nickname : "";
+    const selfieUrl =
+      typeof record.selfieUrl === "string" && record.selfieUrl.trim() ?
+        record.selfieUrl :
+        null;
+    const totalScore = toFiniteNumber(record.totalScore) ?? 0;
+    const cumulativeResponseMs =
+      toFiniteNumber(record.cumulativeResponseMs) ?? 0;
+    const rank = toFiniteNumber(record.rank);
+
+    if (!uid || !nickname || rank === null) {
+      continue;
+    }
+
+    entries.push({
+      uid,
+      nickname,
+      selfieUrl,
+      totalScore,
+      cumulativeResponseMs,
+      rank,
+    });
+  }
+
+  entries.sort((leftEntry, rightEntry) => {
+    if (leftEntry.rank !== rightEntry.rank) {
+      return leftEntry.rank - rightEntry.rank;
+    }
+
+    return leftEntry.uid.localeCompare(rightEntry.uid);
+  });
+
+  return entries;
+}
+
+/**
+ * Builds the persisted top-five payload.
+ * @param {LeaderboardEntryRecord[]} entries Sorted entries.
+ * @return {Record<string, FinalTopFiveEntryRecord>} Stored top-five object.
+ */
+function buildTopFiveObject(
+  entries: LeaderboardEntryRecord[]
+): Record<string, FinalTopFiveEntryRecord> {
+  const topFive: Record<string, FinalTopFiveEntryRecord> = {};
+  entries.slice(0, 5).forEach((entry, index) => {
+    topFive[String(index)] = {
+      uid: entry.uid,
+      nickname: entry.nickname,
+      selfieUrl: entry.selfieUrl,
+      totalScore: entry.totalScore,
+      cumulativeResponseMs: entry.cumulativeResponseMs,
+      finalRank: index + 1,
+    };
+  });
+
+  return topFive;
+}
+
+/**
+ * Returns tied total-score groups that affect final top-five.
+ * @param {LeaderboardEntryRecord[]} sortedEntries Leaderboard entries
+ * sorted by rank.
+ * @return {string[]} Uids that must participate in sudden death.
+ */
+function collectRelevantTieUids(
+  sortedEntries: LeaderboardEntryRecord[]
+): string[] {
+  const tiedUids = new Set<string>();
+
+  let index = 0;
+  while (index < sortedEntries.length) {
+    const groupStart = index;
+    const groupScore = sortedEntries[index].totalScore;
+    while (
+      index < sortedEntries.length &&
+      sortedEntries[index].totalScore === groupScore
+    ) {
+      index += 1;
+    }
+
+    const groupEntries = sortedEntries.slice(groupStart, index);
+    if (groupEntries.length <= 1) {
+      continue;
+    }
+
+    const impactsTopFive = groupEntries.some((entry) => entry.rank <= 5);
+    if (!impactsTopFive) {
+      continue;
+    }
+
+    groupEntries.forEach((entry) => tiedUids.add(entry.uid));
+  }
+
+  return Array.from(tiedUids).sort((leftUid, rightUid) =>
+    leftUid.localeCompare(rightUid)
+  );
+}
+
+/**
+ * Converts an ordered uid list into indexed storage object.
+ * @param {string[]} uids Ordered uid list.
+ * @return {Record<string, string>} Indexed uid object.
+ */
+function toIndexedUidObject(uids: string[]): Record<string, string> {
+  const indexed: Record<string, string> = {};
+  uids.forEach((uid, index) => {
+    indexed[String(index)] = uid;
+  });
+
+  return indexed;
+}
+
+/**
+ * Parses an indexed uid object.
+ * @param {unknown} value Raw tied uid object.
+ * @return {string[]} Sorted unique uid list.
+ */
+function parseIndexedUidObject(value: unknown): string[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const parsed: string[] = [];
+  for (const rawUid of Object.values(value as Record<string, unknown>)) {
+    if (typeof rawUid !== "string" || !rawUid) {
+      continue;
+    }
+    parsed.push(rawUid);
+  }
+
+  return Array.from(new Set(parsed)).sort((leftUid, rightUid) =>
+    leftUid.localeCompare(rightUid)
+  );
+}
+
+/**
+ * Converts participant uid list into membership map.
+ * @param {string[]} uids Ordered uid list.
+ * @return {Record<string, boolean>} Membership map.
+ */
+function toParticipantUidMap(uids: string[]): Record<string, boolean> {
+  const map: Record<string, boolean> = {};
+  uids.forEach((uid) => {
+    map[uid] = true;
+  });
+  return map;
+}
+
+/**
+ * Returns true when any tied participant remains exactly tied after fallback.
+ * @param {LeaderboardEntryRecord[]} entries Entries to inspect.
+ * @param {Record<string, "survived" | "eliminated">} outcomes
+ * Tiebreak outcomes.
+ * @param {Set<string>} tiedUidSet Eligible tied participants.
+ * @return {boolean} True when random draw is required.
+ */
+function requiresRandomDraw(
+  entries: LeaderboardEntryRecord[],
+  outcomes: Record<string, "survived" | "eliminated">,
+  tiedUidSet: Set<string>
+): boolean {
+  const bucketCounts: Record<string, number> = {};
+
+  for (const entry of entries) {
+    if (!tiedUidSet.has(entry.uid)) {
+      continue;
+    }
+
+    const outcome = outcomes[entry.uid] ?? "eliminated";
+    const key = [
+      String(entry.totalScore),
+      outcome,
+      String(entry.cumulativeResponseMs),
+    ].join("|");
+
+    bucketCounts[key] = (bucketCounts[key] ?? 0) + 1;
+    if (bucketCounts[key] > 1) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Creates a random one-time order mapping.
+ * @param {string[]} uids Uids to shuffle.
+ * @return {Record<string, number>} Uid to order index.
+ */
+function createRandomOrderMap(uids: string[]): Record<string, number> {
+  const shuffled = [...uids];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const randomIndex = Math.floor(Math.random() * (i + 1));
+    const temp = shuffled[i];
+    shuffled[i] = shuffled[randomIndex];
+    shuffled[randomIndex] = temp;
+  }
+
+  const orderMap: Record<string, number> = {};
+  shuffled.forEach((uid, index) => {
+    orderMap[uid] = index;
+  });
+
+  return orderMap;
+}
+
+/**
+ * Parses a random order map.
+ * @param {unknown} value Raw map.
+ * @return {Record<string, number>} Parsed map.
+ */
+function parseRandomOrderMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object") {
+    return {};
+  }
+
+  const parsed: Record<string, number> = {};
+  for (
+    const [uid, rawOrder] of Object.entries(value as Record<string, unknown>)
+  ) {
+    const order = toFiniteNumber(rawOrder);
+    if (!uid || order === null) {
+      continue;
+    }
+    parsed[uid] = order;
+  }
+
+  return parsed;
 }
 
 /**
@@ -1077,6 +1378,654 @@ export const buildLeaderboard = onCall<BuildLeaderboardRequest>(
       ok: true,
       roundNumber,
       entryCount: rankedEntries.length,
+    };
+  }
+);
+
+export const prepareFinalResult = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const db = getDatabase();
+    const currentRoundSnapshot = await db
+      .ref(`games/${gameId}/currentRound`)
+      .get();
+    if (!currentRoundSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const currentRoundValue = currentRoundSnapshot.val();
+    if (!currentRoundValue || typeof currentRoundValue !== "object") {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const currentRound = currentRoundValue as RoundRecord;
+    if (
+      Number(currentRound.roundNumber) !== 4 ||
+      currentRound.status !== "result"
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Final result can only be prepared after round 4 result."
+      );
+    }
+
+    const leaderboardSnapshot = await db
+      .ref(`games/${gameId}/leaderboard`)
+      .get();
+    if (!leaderboardSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round 4 leaderboard is required before preparing final result."
+      );
+    }
+
+    const leaderboardValue = leaderboardSnapshot.val();
+    if (!leaderboardValue || typeof leaderboardValue !== "object") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round 4 leaderboard is required before preparing final result."
+      );
+    }
+
+    const leaderboardRoundNumber = toFiniteNumber(
+      (leaderboardValue as Record<string, unknown>).roundNumber
+    );
+    if (leaderboardRoundNumber !== 4) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round 4 leaderboard is required before preparing final result."
+      );
+    }
+
+    const rankedEntries = parseLeaderboardEntries(
+      (leaderboardValue as Record<string, unknown>).entries
+    );
+    if (rankedEntries.length === 0) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Leaderboard entries are invalid."
+      );
+    }
+
+    const finalResultRef = db.ref(`games/${gameId}/finalResult`);
+    const existingFinalSnapshot = await finalResultRef.get();
+    const existingFinalValue = existingFinalSnapshot.val() as
+      StoredFinalResultRecord | null;
+    const existingStatus =
+      existingFinalValue && typeof existingFinalValue.status === "string" ?
+        existingFinalValue.status :
+        null;
+
+    if (existingStatus === "finalized") {
+      return {ok: true, status: "finalized"};
+    }
+
+    const tiedUids = collectRelevantTieUids(rankedEntries);
+
+    if (tiedUids.length === 0) {
+      await finalResultRef.set({
+        status: "finalized" as FinalResultStatus,
+        generatedAt: ServerValue.TIMESTAMP,
+        topFive: buildTopFiveObject(rankedEntries),
+        tiedUids: null,
+        randomDrawUsed: false,
+      });
+
+      return {
+        ok: true,
+        status: "finalized",
+      };
+    }
+
+    await finalResultRef.set({
+      status: "tiebreak_required" as FinalResultStatus,
+      generatedAt: ServerValue.TIMESTAMP,
+      topFive: {},
+      tiedUids: toIndexedUidObject(tiedUids),
+      randomDrawUsed: false,
+    });
+
+    const tiebreakRef = db.ref(`games/${gameId}/tiebreak`);
+    const tiebreakSnapshot = await tiebreakRef.get();
+    const existingTiebreak = tiebreakSnapshot.val() as
+      TiebreakRecord | null;
+    const existingTiebreakStatus =
+      existingTiebreak && typeof existingTiebreak.status === "string" ?
+        existingTiebreak.status :
+        null;
+
+    if (!existingTiebreakStatus || existingTiebreakStatus === "idle") {
+      await tiebreakRef.update({
+        status: "idle" as TiebreakStatus,
+        participantUids: toParticipantUidMap(tiedUids),
+        startedAt: null,
+        endsAt: null,
+        eliminatedChampion: null,
+        voteTotals: {
+          heracles: 0,
+          achilles: 0,
+          perseus: 0,
+          theseus: 0,
+        },
+        submissions: {},
+      });
+    }
+
+    return {
+      ok: true,
+      status: "tiebreak_required",
+      participantCount: tiedUids.length,
+    };
+  }
+);
+
+export const startTiebreak = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const db = getDatabase();
+    const finalResultSnapshot = await db
+      .ref(`games/${gameId}/finalResult`)
+      .get();
+    if (!finalResultSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Final result is not prepared."
+      );
+    }
+
+    const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
+    if (finalResult.status !== "tiebreak_required") {
+      throw new HttpsError("failed-precondition", "Tiebreak is not required.");
+    }
+
+    const tiedUids = parseIndexedUidObject(finalResult.tiedUids);
+    if (tiedUids.length < 2) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak participants are invalid."
+      );
+    }
+
+    const tiebreakRef = db.ref(`games/${gameId}/tiebreak`);
+    const tiebreakSnapshot = await tiebreakRef.get();
+    const tiebreakValue = tiebreakSnapshot.val() as TiebreakRecord | null;
+    const status =
+      tiebreakValue && typeof tiebreakValue.status === "string" ?
+        tiebreakValue.status :
+        "idle";
+
+    if (status !== "idle") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak is already in progress."
+      );
+    }
+
+    await tiebreakRef.update({
+      status: "countdown" as TiebreakStatus,
+      participantUids: toParticipantUidMap(tiedUids),
+      startedAt: null,
+      endsAt: null,
+      eliminatedChampion: null,
+      voteTotals: {
+        heracles: 0,
+        achilles: 0,
+        perseus: 0,
+        theseus: 0,
+      },
+      submissions: {},
+    });
+
+    await waitFor(3000);
+
+    const verifySnapshot = await tiebreakRef.get();
+    const verifyValue = verifySnapshot.val() as TiebreakRecord | null;
+    if (!verifyValue || verifyValue.status !== "countdown") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak countdown could not transition to voting."
+      );
+    }
+
+    const startedAt = Date.now();
+    await tiebreakRef.update({
+      status: "voting" as TiebreakStatus,
+      startedAt,
+      endsAt: startedAt + 20000,
+    });
+
+    return {ok: true};
+  }
+);
+
+export const closeTiebreakVoting = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const tiebreakRef = getDatabase().ref(`games/${gameId}/tiebreak`);
+    const tiebreakSnapshot = await tiebreakRef.get();
+    if (!tiebreakSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak is not initialized."
+      );
+    }
+
+    const tiebreakValue = tiebreakSnapshot.val() as TiebreakRecord;
+    if (tiebreakValue.status !== "voting") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak voting is not open."
+      );
+    }
+
+    await tiebreakRef.update({status: "closed" as TiebreakStatus});
+
+    return {ok: true};
+  }
+);
+
+export const submitTiebreakChoice = onCall<SubmitTiebreakChoiceRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    const uid = request.auth.uid;
+    const gameId = request.data?.gameId;
+    const championId = request.data?.championId;
+
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    if (!isChampionId(championId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid championId is required."
+      );
+    }
+
+    const db = getDatabase();
+    const finalResultSnapshot = await db
+      .ref(`games/${gameId}/finalResult`)
+      .get();
+    if (!finalResultSnapshot.exists()) {
+      throw new HttpsError("failed-precondition", "Tiebreak is not available.");
+    }
+
+    const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
+    if (finalResult.status !== "tiebreak_required") {
+      throw new HttpsError("failed-precondition", "Tiebreak is not available.");
+    }
+
+    const tiedUids = parseIndexedUidObject(finalResult.tiedUids);
+    if (!tiedUids.includes(uid)) {
+      throw new HttpsError(
+        "permission-denied",
+        "You are not eligible to submit in this tiebreak."
+      );
+    }
+
+    const tiebreakRef = db.ref(`games/${gameId}/tiebreak`);
+    let duplicateSubmission = false;
+
+    const transactionResult = await tiebreakRef.transaction((current) => {
+      if (!current || typeof current !== "object") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Tiebreak is not initialized."
+        );
+      }
+
+      const tiebreak = current as Record<string, unknown>;
+      if (tiebreak.status !== "voting") {
+        throw new HttpsError(
+          "failed-precondition",
+          "Tiebreak voting is not open."
+        );
+      }
+
+      const participantUids =
+        tiebreak.participantUids &&
+          typeof tiebreak.participantUids === "object" ?
+          tiebreak.participantUids as Record<string, unknown> :
+          {};
+
+      if (participantUids[uid] !== true) {
+        throw new HttpsError(
+          "permission-denied",
+          "You are not eligible to submit in this tiebreak."
+        );
+      }
+
+      const submissions =
+        tiebreak.submissions && typeof tiebreak.submissions === "object" ?
+          tiebreak.submissions as Record<string, unknown> :
+          {};
+
+      if (submissions[uid]) {
+        duplicateSubmission = true;
+        return;
+      }
+
+      const voteTotalsRaw =
+        tiebreak.voteTotals && typeof tiebreak.voteTotals === "object" ?
+          tiebreak.voteTotals as Record<string, unknown> :
+          {};
+
+      const voteTotals = {
+        heracles: Number(voteTotalsRaw.heracles ?? 0),
+        achilles: Number(voteTotalsRaw.achilles ?? 0),
+        perseus: Number(voteTotalsRaw.perseus ?? 0),
+        theseus: Number(voteTotalsRaw.theseus ?? 0),
+      };
+
+      voteTotals[championId] += 1;
+
+      return {
+        ...tiebreak,
+        submissions: {
+          ...submissions,
+          [uid]: {
+            uid,
+            championId,
+            submittedAt: ServerValue.TIMESTAMP,
+          },
+        },
+        voteTotals,
+      };
+    });
+
+    if (!transactionResult.committed) {
+      if (duplicateSubmission) {
+        throw new HttpsError(
+          "already-exists",
+          "You already submitted for tiebreak."
+        );
+      }
+
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak submission failed."
+      );
+    }
+
+    return {ok: true};
+  }
+);
+
+export const finalizeTiebreak = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    // TODO: Restrict this action to authorized GM users before production.
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    const db = getDatabase();
+    const finalResultRef = db.ref(`games/${gameId}/finalResult`);
+    const finalResultSnapshot = await finalResultRef.get();
+    if (!finalResultSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Final result is not prepared."
+      );
+    }
+
+    const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
+    if (finalResult.status === "finalized") {
+      return {ok: true, status: "finalized"};
+    }
+
+    if (finalResult.status !== "tiebreak_required") {
+      throw new HttpsError("failed-precondition", "Tiebreak is not required.");
+    }
+
+    const tiedUids = parseIndexedUidObject(finalResult.tiedUids);
+    if (tiedUids.length < 2) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak participants are invalid."
+      );
+    }
+
+    const tiebreakRef = db.ref(`games/${gameId}/tiebreak`);
+    const tiebreakSnapshot = await tiebreakRef.get();
+    if (!tiebreakSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak is not initialized."
+      );
+    }
+
+    const tiebreak = tiebreakSnapshot.val() as TiebreakRecord;
+    if (tiebreak.status !== "closed" && tiebreak.status !== "result") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak is not ready to finalize."
+      );
+    }
+
+    const voteTotalsRaw =
+      tiebreak.voteTotals && typeof tiebreak.voteTotals === "object" ?
+        tiebreak.voteTotals as Record<string, unknown> :
+        {};
+
+    const voteTotals: Record<ChampionId, number> = {
+      heracles: Number(voteTotalsRaw.heracles ?? 0),
+      achilles: Number(voteTotalsRaw.achilles ?? 0),
+      perseus: Number(voteTotalsRaw.perseus ?? 0),
+      theseus: Number(voteTotalsRaw.theseus ?? 0),
+    };
+
+    const highestVotes = Math.max(
+      voteTotals.heracles,
+      voteTotals.achilles,
+      voteTotals.perseus,
+      voteTotals.theseus
+    );
+
+    const topChampions = CHAMPION_IDS.filter(
+      (championId) => voteTotals[championId] === highestVotes
+    );
+    const sampledEliminatedChampion = topChampions[
+      Math.floor(Math.random() * topChampions.length)
+    ];
+
+    const tiebreakResultRef = db.ref(
+      `games/${gameId}/tiebreak/finalizedResult`
+    );
+    const claimResult = await tiebreakResultRef.transaction((current) => {
+      if (current && typeof current === "object") {
+        return current;
+      }
+
+      return {
+        eliminatedChampion: sampledEliminatedChampion,
+      } as TiebreakFinalizedResultRecord;
+    });
+
+    const claimedResult = claimResult.snapshot?.val() as
+      TiebreakFinalizedResultRecord | null;
+    if (!claimedResult || !isChampionId(claimedResult.eliminatedChampion)) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Tiebreak result state is invalid."
+      );
+    }
+
+    const eliminatedChampion = claimedResult.eliminatedChampion;
+
+    const submissionsRaw =
+      tiebreak.submissions && typeof tiebreak.submissions === "object" ?
+        tiebreak.submissions as Record<string, TiebreakSubmissionRecord> :
+        {};
+
+    const tiebreakOutcomes: Record<string, "survived" | "eliminated"> = {};
+    tiedUids.forEach((uid) => {
+      const chosenChampion = submissionsRaw[uid]?.championId;
+      tiebreakOutcomes[uid] = isChampionId(chosenChampion) &&
+        chosenChampion !== eliminatedChampion ?
+        "survived" :
+        "eliminated";
+    });
+
+    const leaderboardSnapshot = await db
+      .ref(`games/${gameId}/leaderboard`)
+      .get();
+    if (!leaderboardSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round 4 leaderboard is required."
+      );
+    }
+
+    const leaderboardValue = leaderboardSnapshot.val() as
+      Record<string, unknown>;
+    const leaderboardRoundNumber = toFiniteNumber(leaderboardValue.roundNumber);
+    if (leaderboardRoundNumber !== 4) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round 4 leaderboard is required."
+      );
+    }
+
+    const rankedEntries = parseLeaderboardEntries(leaderboardValue.entries);
+    const tiedUidSet = new Set(tiedUids);
+    const shouldUseRandomDraw = requiresRandomDraw(
+      rankedEntries,
+      tiebreakOutcomes,
+      tiedUidSet
+    );
+
+    let randomDrawOrder = parseRandomOrderMap(finalResult.randomDrawOrder);
+    if (shouldUseRandomDraw && Object.keys(randomDrawOrder).length === 0) {
+      const randomOrderRef = db.ref(
+        `games/${gameId}/finalResult/randomDrawOrder`
+      );
+      const drawClaim = await randomOrderRef.transaction((current) => {
+        if (current && typeof current === "object") {
+          return current;
+        }
+
+        return createRandomOrderMap(tiedUids);
+      });
+
+      randomDrawOrder = parseRandomOrderMap(drawClaim.snapshot?.val());
+    }
+
+    const rankedForFinal = [...rankedEntries].sort((leftEntry, rightEntry) => {
+      if (leftEntry.totalScore !== rightEntry.totalScore) {
+        return rightEntry.totalScore - leftEntry.totalScore;
+      }
+
+      const leftOutcome = tiebreakOutcomes[leftEntry.uid] ?? "survived";
+      const rightOutcome = tiebreakOutcomes[rightEntry.uid] ?? "survived";
+      if (leftOutcome !== rightOutcome) {
+        return leftOutcome === "survived" ? -1 : 1;
+      }
+
+      if (leftEntry.cumulativeResponseMs !== rightEntry.cumulativeResponseMs) {
+        return leftEntry.cumulativeResponseMs - rightEntry.cumulativeResponseMs;
+      }
+
+      const leftRandom = randomDrawOrder[leftEntry.uid];
+      const rightRandom = randomDrawOrder[rightEntry.uid];
+      if (
+        shouldUseRandomDraw &&
+        leftRandom !== undefined &&
+        rightRandom !== undefined &&
+        leftRandom !== rightRandom
+      ) {
+        return leftRandom - rightRandom;
+      }
+
+      return leftEntry.uid.localeCompare(rightEntry.uid);
+    });
+
+    await db.ref(`games/${gameId}`).update({
+      "tiebreak/status": "result",
+      "tiebreak/eliminatedChampion": eliminatedChampion,
+      "tiebreak/outcomes": tiebreakOutcomes,
+      "finalResult/status": "finalized",
+      "finalResult/generatedAt": ServerValue.TIMESTAMP,
+      "finalResult/topFive": buildTopFiveObject(rankedForFinal),
+      "finalResult/randomDrawUsed": shouldUseRandomDraw,
+      "finalResult/tiedUids": toIndexedUidObject(tiedUids),
+    });
+
+    return {
+      ok: true,
+      status: "finalized",
+      eliminatedChampion,
+      randomDrawUsed: shouldUseRandomDraw,
     };
   }
 );
