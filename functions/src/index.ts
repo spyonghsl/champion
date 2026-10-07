@@ -82,6 +82,7 @@ interface RoundScoreRecord {
 interface RoundResultRecord {
   status: "finalized";
   eliminatedChampion: ChampionId;
+  videoCommandId: string;
 }
 
 interface VideoCommand {
@@ -551,18 +552,15 @@ function calculateRoundScore(
 }
 
 /**
- * Builds deterministic command id for elimination video playback.
- * @param {string} gameId Current game id.
- * @param {number} roundNumber Finalized round number.
- * @param {ChampionId} champion Eliminated champion id.
- * @return {string} Deterministic command id.
+ * Generates a unique persistent video command id.
+ * @return {string} Unique video command id.
  */
-function buildVideoCommandId(
-  gameId: string,
-  roundNumber: number,
-  champion: ChampionId
-): string {
-  return `game-${gameId}-round-${roundNumber}-${champion}`;
+function generateVideoCommandId(): string {
+  const pushKey = getDatabase().ref().push().key;
+  const fallbackId = `cmd-${Date.now()}-${Math.random()
+    .toString(36)
+    .substr(2, 9)}`;
+  return pushKey || fallbackId;
 }
 
 /**
@@ -580,18 +578,18 @@ function buildEliminationVideoFilename(
 
 /**
  * Creates elimination video command payload.
- * @param {string} gameId Current game id.
  * @param {number} roundNumber Finalized round number.
  * @param {ChampionId} champion Eliminated champion id.
+ * @param {string} videoCommandId Persisted unique command id.
  * @return {VideoCommand} Video command for display player.
  */
 function createEliminationVideoCommand(
-  gameId: string,
   roundNumber: number,
-  champion: ChampionId
+  champion: ChampionId,
+  videoCommandId: string
 ): VideoCommand {
   return {
-    commandId: buildVideoCommandId(gameId, roundNumber, champion),
+    commandId: videoCommandId,
     action: "play",
     round: roundNumber,
     champion,
@@ -1126,6 +1124,7 @@ export const finalizeRound = onCall<GameActionRequest>(
       Math.floor(Math.random() * tiedChampions.length)
     ];
 
+    const videoCommandId = generateVideoCommandId();
     const roundResultRef = db.ref(
       `games/${gameId}/roundResults/${roundNumber}`
     );
@@ -1137,6 +1136,7 @@ export const finalizeRound = onCall<GameActionRequest>(
       const roundResult: RoundResultRecord = {
         status: "finalized",
         eliminatedChampion,
+        videoCommandId,
       };
 
       return roundResult;
@@ -1158,7 +1158,18 @@ export const finalizeRound = onCall<GameActionRequest>(
       );
     }
 
+    if (
+      typeof storedResult.videoCommandId !== "string" ||
+        !storedResult.videoCommandId
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round finalization video command id is invalid."
+      );
+    }
+
     const authoritativeEliminatedChampion = storedResult.eliminatedChampion;
+    const authoritativeVideoCommandId = storedResult.videoCommandId;
 
     const verifyBeforeUpdate = await currentRoundRef.get();
     if (!verifyBeforeUpdate.exists()) {
@@ -1201,9 +1212,9 @@ export const finalizeRound = onCall<GameActionRequest>(
 
     if (roundNumber >= 1 && roundNumber <= 4) {
       const videoCommand = createEliminationVideoCommand(
-        gameId,
         roundNumber,
-        authoritativeEliminatedChampion
+        authoritativeEliminatedChampion,
+        authoritativeVideoCommandId
       );
       updates["display/video"] = videoCommand;
 
