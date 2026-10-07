@@ -35,6 +35,20 @@
             }
           }
         },
+        "display": {
+          "video": {
+            ".read": false,
+            ".write": false
+          },
+          "videoStatus": {
+            ".read": true,
+            ".write": false
+          },
+          "videoPlayerHealth": {
+            ".read": true,
+            ".write": false
+          }
+        },
         "scores": {
           "$uid": {
             ".read": "auth != null && auth.uid == $uid",

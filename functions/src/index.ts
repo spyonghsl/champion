@@ -1,5 +1,6 @@
 import {initializeApp} from "firebase-admin/app";
 import {getDatabase, ServerValue} from "firebase-admin/database";
+import * as logger from "firebase-functions/logger";
 import {setGlobalOptions} from "firebase-functions";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
 
@@ -81,6 +82,14 @@ interface RoundScoreRecord {
 interface RoundResultRecord {
   status: "finalized";
   eliminatedChampion: ChampionId;
+}
+
+interface VideoCommand {
+  commandId: string;
+  action: "play";
+  round: number;
+  champion: ChampionId;
+  filename: string;
 }
 
 interface ParticipantProfileRecord {
@@ -538,6 +547,55 @@ function calculateRoundScore(
     score,
     submittedAt,
     elapsedMs: elapsed,
+  };
+}
+
+/**
+ * Builds deterministic command id for elimination video playback.
+ * @param {string} gameId Current game id.
+ * @param {number} roundNumber Finalized round number.
+ * @param {ChampionId} champion Eliminated champion id.
+ * @return {string} Deterministic command id.
+ */
+function buildVideoCommandId(
+  gameId: string,
+  roundNumber: number,
+  champion: ChampionId
+): string {
+  return `game-${gameId}-round-${roundNumber}-${champion}`;
+}
+
+/**
+ * Builds elimination video file name.
+ * @param {number} roundNumber Finalized round number.
+ * @param {ChampionId} champion Eliminated champion id.
+ * @return {string} Video filename for player.
+ */
+function buildEliminationVideoFilename(
+  roundNumber: number,
+  champion: ChampionId
+): string {
+  return `round${roundNumber}_${champion}_eliminated.mp4`;
+}
+
+/**
+ * Creates elimination video command payload.
+ * @param {string} gameId Current game id.
+ * @param {number} roundNumber Finalized round number.
+ * @param {ChampionId} champion Eliminated champion id.
+ * @return {VideoCommand} Video command for display player.
+ */
+function createEliminationVideoCommand(
+  gameId: string,
+  roundNumber: number,
+  champion: ChampionId
+): VideoCommand {
+  return {
+    commandId: buildVideoCommandId(gameId, roundNumber, champion),
+    action: "play",
+    round: roundNumber,
+    champion,
+    filename: buildEliminationVideoFilename(roundNumber, champion),
   };
 }
 
@@ -1140,6 +1198,23 @@ export const finalizeRound = onCall<GameActionRequest>(
       "currentRound/status": "result",
       "currentRound/eliminatedChampion": authoritativeEliminatedChampion,
     };
+
+    if (roundNumber >= 1 && roundNumber <= 4) {
+      const videoCommand = createEliminationVideoCommand(
+        gameId,
+        roundNumber,
+        authoritativeEliminatedChampion
+      );
+      updates["display/video"] = videoCommand;
+
+      logger.info("Finalize round video command created", {
+        gameId,
+        roundNumber,
+        eliminatedChampion: authoritativeEliminatedChampion,
+        commandId: videoCommand.commandId,
+        filename: videoCommand.filename,
+      });
+    }
 
     const isScoringRound = !verifyRound.isDemo &&
       Number.isFinite(roundNumber) &&
