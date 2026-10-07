@@ -163,10 +163,10 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   }
 
   const selectedChampion = submission
-    ? championMap[submission.championId].displayName
+    ? championMap[submission.championId]
     : null
   const selectedTiebreakChampion = tiebreakSubmission
-    ? championMap[tiebreakSubmission.championId].displayName
+    ? championMap[tiebreakSubmission.championId]
     : null
 
   if (finalResult?.status === 'finalized') {
@@ -198,11 +198,34 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     }
 
     if (tiebreak.status === 'voting') {
-      if (tiebreakSubmission) {
+      if (tiebreakSubmission && selectedTiebreakChampion) {
         return (
-          <section>
-            <p>You chose {selectedTiebreakChampion}</p>
-          </section>
+<section>
+  <p>You chose</p>
+
+  <img
+    src={selectedTiebreakChampion.image}
+    alt={selectedTiebreakChampion.displayName}
+    style={{
+      width: 'min(320px, 90vw)',
+      aspectRatio: '1 / 1',
+      objectFit: 'cover',
+      borderRadius: '16px',
+      display: 'block',
+      margin: '1rem auto',
+    }}
+  />
+
+  <p
+    style={{
+      fontSize: '1.5rem',
+      fontWeight: 700,
+      textAlign: 'center',
+    }}
+  >
+    {selectedTiebreakChampion.displayName}
+  </p>
+</section>
         )
       }
 
@@ -210,24 +233,44 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
         <section>
           <p>Choose your tiebreak champion</p>
 
-          <div style={gridStyle}>
-            {CHAMPIONS.map((champion) => {
-              const isDisabled = isSubmittingTiebreak
+        <div style={gridStyle}>
+          {CHAMPIONS.map((champion) => {
+            const isDisabled = isSubmittingTiebreak
 
-              return (
-                <button
-                  key={champion.id}
-                  type="button"
-                  onClick={() => void handleTiebreakChampionSelect(champion.id)}
-                  disabled={isDisabled}
-                  style={isDisabled ? disabledCardStyle : cardStyle}
+            return (
+              <button
+                key={champion.id}
+                type="button"
+                onClick={() => void handleTiebreakChampionSelect(champion.id)}
+                disabled={isDisabled}
+                style={isDisabled ? disabledCardStyle : cardStyle}
+              >
+                <img
+                  src={champion.image}
+                  alt={champion.displayName}
+                  style={{
+                    width: '100%',
+                    aspectRatio: '1 / 1',
+                    objectFit: 'cover',
+                    borderRadius: '12px',
+                    marginBottom: '0.75rem',
+                    display: 'block',
+                  }}
+                />
+
+                <span
+                  style={{
+                    display: 'block',
+                    fontSize: '1.1rem',
+                    fontWeight: 700,
+                  }}
                 >
                   {champion.displayName}
-                </button>
-              )
-            })}
-          </div>
-
+                </span>
+              </button>
+            )
+          })}
+        </div>
           {error ? <p role="alert">{error}</p> : null}
         </section>
       )
@@ -305,10 +348,33 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   }
 
   if (round.status === 'voting') {
-    if (submission) {
+    if (submission && selectedChampion) {
       return (
         <section>
-          <p>You chose {selectedChampion}</p>
+           <p>You chose</p>
+
+  <img
+    src={selectedChampion.image}
+    alt={selectedChampion.displayName}
+    style={{
+      width: 'min(320px, 90vw)',
+      aspectRatio: '1 / 1',
+      objectFit: 'cover',
+      borderRadius: '16px',
+      display: 'block',
+      margin: '1rem auto',
+    }}
+  />
+
+  <p
+    style={{
+      fontSize: '1.5rem',
+      fontWeight: 700,
+      textAlign: 'center',
+    }}
+  >
+    {selectedChampion.displayName}
+  </p>
         </section>
       )
     }
@@ -318,22 +384,43 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
         <p>Choose your champion</p>
 
         <div style={gridStyle}>
-          {CHAMPIONS.map((champion) => {
-            const isDisabled = isSubmitting
+  {CHAMPIONS.map((champion) => {
+    const isDisabled = isSubmitting
 
-            return (
-              <button
-                key={champion.id}
-                type="button"
-                onClick={() => void handleChampionSelect(champion.id)}
-                disabled={isDisabled}
-                style={isDisabled ? disabledCardStyle : cardStyle}
-              >
-                {champion.displayName}
-              </button>
-            )
-          })}
-        </div>
+    return (
+      <button
+        key={champion.id}
+        type="button"
+        onClick={() => void handleChampionSelect(champion.id)}
+        disabled={isDisabled}
+        style={isDisabled ? disabledCardStyle : cardStyle}
+      >
+        <img
+          src={champion.image}
+          alt={champion.displayName}
+          style={{
+            width: '100%',
+            aspectRatio: '1 / 1',
+            objectFit: 'cover',
+            borderRadius: '12px',
+            marginBottom: '0.75rem',
+            display: 'block',
+          }}
+        />
+
+        <span
+          style={{
+            display: 'block',
+            fontSize: '1.1rem',
+            fontWeight: 700,
+          }}
+        >
+          {champion.displayName}
+        </span>
+      </button>
+    )
+  })}
+</div>
 
         {error ? <p role="alert">{error}</p> : null}
       </section>

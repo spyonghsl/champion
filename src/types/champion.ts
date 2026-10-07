@@ -7,7 +7,13 @@ export type ChampionId =
 export interface Champion {
     id: ChampionId
     displayName: string
+    image: string
 }
+
+import heraclesImage from '../assets/champions/heracles.jpg'
+import achillesImage from '../assets/champions/achilles.jpg'
+import perseusImage from '../assets/champions/perseus.jpg'
+import theseusImage from '../assets/champions/theseus.jpg'
 
 export type ChampionVoteTotals = Record<ChampionId, number>
 
@@ -15,18 +21,23 @@ export const CHAMPIONS: Champion[] = [
     {
         id: 'heracles',
         displayName: 'Heracles',
+        image: heraclesImage,
+
     },
     {
         id: 'achilles',
         displayName: 'Achilles',
+        image: achillesImage,
     },
     {
         id: 'perseus',
         displayName: 'Perseus',
+        image: perseusImage,
     },
     {
         id: 'theseus',
         displayName: 'Theseus',
+        image: theseusImage,
     },
 ]
 
