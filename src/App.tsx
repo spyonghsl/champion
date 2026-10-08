@@ -100,9 +100,16 @@ function PlayerPage() {
     }
     return (
       <section>
-        <p>You're registered!</p>
-        <img src={participantState.participant.selfieUrl} alt={participantState.participant.nickname} />
-        <p>{participantState.participant.nickname}</p>
+        <div className="participant-welcome">
+          <img
+            src={participantState.participant.selfieUrl}
+            alt={participantState.participant.nickname}
+            className="participant-selfie-small"
+          />
+          <div>
+            <p className="welcome-text">Welcome, {participantState.participant.nickname}</p>
+          </div>
+        </div>
         <ParticipantGamePage uid={uid} />
       </section>
     )
@@ -110,7 +117,7 @@ function PlayerPage() {
 
   return (
     <main>
-      <h1>Champion Game 2026</h1>
+      <h1>Battle of Champions</h1>
       {renderContent()}
     </main>
   )

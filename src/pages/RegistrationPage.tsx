@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 
 import { resizeSelfie } from '../services/image'
@@ -14,6 +14,7 @@ function RegistrationPage({ uid, onRegistered }: RegistrationPageProps) {
   const [selfieFile, setSelfieFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const selfiePreviewUrl = useMemo(() => {
     if (!selfieFile) return null
@@ -33,6 +34,10 @@ function RegistrationPage({ uid, onRegistered }: RegistrationPageProps) {
     const file = event.target.files?.[0] ?? null
     setError(null)
     setSelfieFile(file)
+  }
+
+  function handleChoosePhotoClick() {
+    fileInputRef.current?.click()
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -80,45 +85,64 @@ function RegistrationPage({ uid, onRegistered }: RegistrationPageProps) {
     selfieFile !== null
 
   return (
-    <form onSubmit={handleSubmit}>
-      <label>
-        Nickname
-        <input
-          type="text"
-          value={nickname}
-          onChange={(event) => setNickname(event.target.value)}
-          disabled={submitting}
-        />
-      </label>
+    <>
+      <p className="tagline">Choose. Survive. Conquer.</p>
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label htmlFor="nickname" className="form-label">
+            Your Nickname
+          </label>
+          <input
+            id="nickname"
+            type="text"
+            value={nickname}
+            onChange={(event) => setNickname(event.target.value)}
+            disabled={submitting}
+            placeholder="Enter your nickname"
+          />
+        </div>
 
-      <label>
-        Selfie
-        <input
-          type="file"
-          accept="image/*"
-          capture="user"
-          onChange={handleSelfieChange}
-          disabled={submitting}
-          required
-        />
-      </label>
+        <div className="selfie-upload-wrapper">
+          <label className="form-label">Your Selfie</label>
+          <div className="selfie-preview-container">
+            {selfiePreviewUrl ? (
+              <img
+                src={selfiePreviewUrl}
+                alt="Selected selfie preview"
+              />
+            ) : (
+              <span className="selfie-placeholder">📸</span>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="user"
+            onChange={handleSelfieChange}
+            disabled={submitting}
+            required
+          />
+          <button
+            type="button"
+            className="file-input-button"
+            onClick={handleChoosePhotoClick}
+            disabled={submitting}
+          >
+            Choose Photo
+          </button>
+        </div>
 
-      {selfiePreviewUrl && (
-        <img
-          src={selfiePreviewUrl}
-          alt="Selected selfie preview"
-        />
-      )}
+        <button
+          type="submit"
+          disabled={!canRegister}
+        >
+          {submitting ? 'Entering the game...' : 'Enter the Game'}
+        </button>
 
-      <button
-        type="submit"
-        disabled={!canRegister}
-      >
-        {submitting ? 'Registering...' : 'Register'}
-      </button>
-
-      {error && <p role="alert">{error}</p>}
-    </form>
+        {error && <p role="alert">{error}</p>}
+      </form>
+    </>
   )
 }
 

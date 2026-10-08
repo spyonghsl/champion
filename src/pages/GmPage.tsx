@@ -21,6 +21,8 @@ import type { Leaderboard } from '../types/leaderboard'
 import type { Round } from '../types/round'
 import type { Tiebreak } from '../types/tiebreak'
 
+type GmTab = 'controls' | 'reset'
+
 function GmPage() {
   const [user, setUser] = useState<{ uid: string; email: string | null } | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -51,7 +53,8 @@ function GmPage() {
   if (isLoading) {
     return (
       <main>
-        <h1>GM Dashboard</h1>
+        <h1>BATTLE OF CHAMPIONS</h1>
+        <p className="gm-page-subtitle">GM DASHBOARD</p>
         <p>Loading...</p>
       </main>
     )
@@ -60,7 +63,8 @@ function GmPage() {
   if (!user) {
     return (
       <main>
-        <h1>GM Dashboard</h1>
+        <h1>BATTLE OF CHAMPIONS</h1>
+        <p className="gm-page-subtitle">GM DASHBOARD</p>
         <GmLoginForm />
       </main>
     )
@@ -68,7 +72,8 @@ function GmPage() {
 
   return (
     <main>
-      <h1>GM Dashboard</h1>
+      <h1>BATTLE OF CHAMPIONS</h1>
+      <p className="gm-page-subtitle">GM DASHBOARD</p>
       <GmControls />
     </main>
   )
@@ -120,6 +125,7 @@ function GmLoginForm() {
 }
 
 function GmControls() {
+  const [activeTab, setActiveTab] = useState<GmTab>('controls')
   const [round, setRound] = useState<Round | null>(null)
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null)
   const [finalResult, setFinalResult] = useState<FinalResult | null>(null)
@@ -451,68 +457,121 @@ function GmControls() {
   }
 
   return (
-    <>
-      <h2>GM Controls</h2>
-      {error && <p role="alert">{error}</p>}
-      {successMessage && <p style={{ color: 'green' }}>{successMessage}</p>}
-      <div>
-        <h3>Current Round: {round?.roundNumber}</h3>
-        <p>Status: {round?.status}</p>
-        {round?.eliminatedChampion && <p>Eliminated: {round.eliminatedChampion}</p>}
-      </div>
-      <div>
-        <h3>Controls</h3>
-        {renderControls()}
-      </div>
-      {leaderboard && (
-        <details>
-          <summary>Leaderboard (Round {leaderboard.roundNumber})</summary>
-          <ol>
-            {leaderboard.entries.map((entry) => (
-              <li key={entry.uid}>
-                {entry.nickname}: {entry.totalScore} points
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-      {finalResult && (
-        <details>
-          <summary>Final Result (Status: {finalResult.status})</summary>
-          <ol>
-            {finalResult.topFive.map((entry) => (
-              <li key={entry.uid}>
-                {entry.nickname}: {entry.totalScore} points
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
-      <hr style={{ margin: '2rem 0' }} />
-      <div style={{ padding: '1rem', border: '1px solid #ccc', borderRadius: '4px' }}>
-        <h3>Danger Zone</h3>
-        <p>Reset all game data (registrations, scores, rounds, results).</p>
+    <section className="gm-dashboard-shell">
+      <div className="gm-header-row">
         <button
           type="button"
-          onClick={() => void handleResetGame()}
-          disabled={isActing}
-          style={{
-            backgroundColor: '#dc3545',
-            color: 'white',
-            padding: '0.5rem 1rem',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: isActing ? 'not-allowed' : 'pointer',
-            opacity: isActing ? 0.6 : 1,
-          }}
+          className="gm-signout-close"
+          onClick={() => void handleSignOut()}
+          aria-label="Sign out"
+          title="Sign out"
         >
-          {isActing ? 'Resetting...' : 'Reset Game'}
+          ×
         </button>
       </div>
-      <button type="button" onClick={() => void handleSignOut()}>
-        Sign Out
-      </button>
-    </>
+
+      <div className="gm-tabs" role="tablist" aria-label="GM dashboard sections">
+        <button
+          type="button"
+          role="tab"
+          id="gm-tab-controls"
+          aria-selected={activeTab === 'controls'}
+          aria-controls="gm-panel-controls"
+          className={`gm-tab-button ${activeTab === 'controls' ? 'active' : ''}`}
+          onClick={() => setActiveTab('controls')}
+        >
+          Controls
+        </button>
+        <button
+          type="button"
+          role="tab"
+          id="gm-tab-reset"
+          aria-selected={activeTab === 'reset'}
+          aria-controls="gm-panel-reset"
+          className={`gm-tab-button ${activeTab === 'reset' ? 'active' : ''}`}
+          onClick={() => setActiveTab('reset')}
+        >
+          Reset
+        </button>
+      </div>
+
+      {activeTab === 'controls' ? (
+        <div
+          id="gm-panel-controls"
+          role="tabpanel"
+          aria-labelledby="gm-tab-controls"
+          className="gm-tab-panel"
+        >
+          <h2 className="gm-controls-title">GM Controls</h2>
+          {error && <p role="alert">{error}</p>}
+          <div>
+            <h3>Current Round: {round?.roundNumber}</h3>
+            <p>Status: {round?.status}</p>
+            {round?.eliminatedChampion && <p>Eliminated: {round.eliminatedChampion}</p>}
+          </div>
+          <div>
+            <h3>Controls</h3>
+            {renderControls()}
+          </div>
+          {leaderboard && (
+            <details>
+              <summary>Leaderboard (Round {leaderboard.roundNumber})</summary>
+              <ol>
+                {leaderboard.entries.map((entry) => (
+                  <li key={entry.uid}>
+                    {entry.nickname}: {entry.totalScore} points
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+          {finalResult && (
+            <details>
+              <summary>Final Result (Status: {finalResult.status})</summary>
+              <ol>
+                {finalResult.topFive.map((entry) => (
+                  <li key={entry.uid}>
+                    {entry.nickname}: {entry.totalScore} points
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
+        </div>
+      ) : null}
+
+      {activeTab === 'reset' ? (
+        <div
+          id="gm-panel-reset"
+          role="tabpanel"
+          aria-labelledby="gm-tab-reset"
+          className="gm-tab-panel"
+        >
+          <div className="gm-reset-panel">
+            <h2>RESET GAME</h2>
+            <p>This will permanently clear the current game data, including:</p>
+            <ul>
+              <li>Registrations</li>
+              <li>Submissions</li>
+              <li>Scores</li>
+              <li>Rounds and round results</li>
+              <li>Leaderboard</li>
+              <li>Final result</li>
+            </ul>
+            {error && <p role="alert">{error}</p>}
+            {successMessage && <p className="gm-success-message">{successMessage}</p>}
+            <button
+              type="button"
+              onClick={() => void handleResetGame()}
+              disabled={isActing}
+              className="gm-reset-button"
+            >
+              {isActing ? 'Resetting...' : 'RESET GAME'}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   )
 }
 

@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import type { CSSProperties } from 'react'
 
 import { CHAMPIONS, championMap, type ChampionId } from '../types/champion'
 import type { FinalResult } from '../types/finalResult'
@@ -18,32 +17,6 @@ import {
   subscribeToLeaderboard,
   subscribeToRoundSubmission,
 } from '../services/game'
-
-const gridStyle: CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(180px, 1fr))',
-  gap: '1rem',
-  width: 'min(560px, 100%)',
-  marginTop: '1.5rem',
-}
-
-const cardStyle: CSSProperties = {
-  minHeight: '120px',
-  fontSize: '1.2rem',
-  fontWeight: 600,
-  border: '1px solid #d1d5db',
-  borderRadius: '12px',
-  background: '#fff',
-  color: '#111827',
-  cursor: 'pointer',
-  padding: '1rem',
-}
-
-const disabledCardStyle: CSSProperties = {
-  ...cardStyle,
-  opacity: 0.6,
-  cursor: 'not-allowed',
-}
 
 interface ParticipantGamePageProps {
   uid: string
@@ -173,10 +146,29 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     const finalTopFiveEntry = finalResult.topFive.find((entry) => entry.uid === uid) ?? null
 
     return (
-      <section>
-        {finalTopFiveEntry
-          ? <p>Your final rank: {finalTopFiveEntry.finalRank}</p>
-          : <p>Game complete</p>}
+      <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+        <div className="result-section">
+          {finalTopFiveEntry
+            ? (
+              <>
+                <p className="result-label">Final Result</p>
+                <p className="result-text" style={{ fontSize: 'clamp(1.5rem, 4vw, 2.5rem)', fontWeight: 700, color: 'var(--accent-gold)' }}>
+                  🏆 Rank #{finalTopFiveEntry.finalRank}
+                </p>
+                <p className="result-text">
+                  {finalTopFiveEntry.nickname} · {finalTopFiveEntry.totalScore} points
+                </p>
+              </>
+            )
+            : (
+              <>
+                <p className="result-text">Game complete.</p>
+                <p className="result-text" style={{ color: 'var(--text-secondary)' }}>
+                  Thank you for competing!
+                </p>
+              </>
+            )}
+        </div>
       </section>
     )
   }
@@ -186,91 +178,90 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     const isTiebreakParticipant = participantUids.includes(uid)
 
     if (!isTiebreakParticipant) {
-      return <p>Final ranking is being resolved.</p>
+      return (
+        <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+          <div className="result-section">
+            <p className="result-text">
+              🎭 Final ranking is being resolved.
+            </p>
+            <p className="result-text" style={{ color: 'var(--text-secondary)' }}>
+              Watch the display screen for results.
+            </p>
+          </div>
+        </section>
+      )
     }
 
     if (!tiebreak || tiebreak.status === 'idle') {
-      return <p>Tiebreak is about to start.</p>
+      return (
+        <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+          <p className="section-subtitle" style={{ marginTop: '2rem', fontSize: 'clamp(1rem, 2vw, 1.2rem)' }}>
+            🎭 Tiebreak is about to start.
+          </p>
+        </section>
+      )
     }
 
     if (tiebreak.status === 'countdown') {
-      return <p>Tiebreak countdown in progress...</p>
+      return (
+        <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+          <p className="section-subtitle" style={{ marginTop: '2rem', fontSize: 'clamp(1rem, 2vw, 1.2rem)' }}>
+            ⏳ Tiebreak countdown in progress...
+          </p>
+        </section>
+      )
     }
 
     if (tiebreak.status === 'voting') {
       if (tiebreakSubmission && selectedTiebreakChampion) {
         return (
-<section>
-  <p>You chose</p>
-
-  <img
-    src={selectedTiebreakChampion.image}
-    alt={selectedTiebreakChampion.displayName}
-    style={{
-      width: 'min(320px, 90vw)',
-      aspectRatio: '1 / 1',
-      objectFit: 'cover',
-      borderRadius: '16px',
-      display: 'block',
-      margin: '1rem auto',
-    }}
-  />
-
-  <p
-    style={{
-      fontSize: '1.5rem',
-      fontWeight: 700,
-      textAlign: 'center',
-    }}
-  >
-    {selectedTiebreakChampion.displayName}
-  </p>
-</section>
+          <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+            <div className="locked-section">
+              <h2 className="section-title">Your Tiebreak Champion</h2>
+              <img
+                src={selectedTiebreakChampion.image}
+                alt={selectedTiebreakChampion.displayName}
+                className="locked-champion-image"
+              />
+              <h3 className="locked-champion-name">
+                {selectedTiebreakChampion.displayName}
+              </h3>
+              <p className="locked-status">Choice locked in ✓</p>
+              <p className="waiting-text">Waiting for tiebreak results...</p>
+            </div>
+          </section>
         )
       }
 
       return (
         <section>
-          <p>Choose your tiebreak champion</p>
+          <h2 className="section-title">Tiebreak Vote</h2>
+          <p className="section-subtitle">Choose your champion for the tiebreak.</p>
 
-        <div style={gridStyle}>
-          {CHAMPIONS.map((champion) => {
-            const isDisabled = isSubmittingTiebreak
+          <div className="champion-grid">
+            {CHAMPIONS.map((champion) => {
+              const isDisabled = isSubmittingTiebreak
 
-            return (
-              <button
-                key={champion.id}
-                type="button"
-                onClick={() => void handleTiebreakChampionSelect(champion.id)}
-                disabled={isDisabled}
-                style={isDisabled ? disabledCardStyle : cardStyle}
-              >
-                <img
-                  src={champion.image}
-                  alt={champion.displayName}
-                  style={{
-                    width: '100%',
-                    aspectRatio: '1 / 1',
-                    objectFit: 'cover',
-                    borderRadius: '12px',
-                    marginBottom: '0.75rem',
-                    display: 'block',
-                  }}
-                />
-
-                <span
-                  style={{
-                    display: 'block',
-                    fontSize: '1.1rem',
-                    fontWeight: 700,
-                  }}
+              return (
+                <button
+                  key={champion.id}
+                  type="button"
+                  onClick={() => void handleTiebreakChampionSelect(champion.id)}
+                  disabled={isDisabled}
+                  className={`champion-card ${isDisabled ? 'disabled' : ''}`}
                 >
-                  {champion.displayName}
-                </span>
-              </button>
-            )
-          })}
-        </div>
+                  <img
+                    src={champion.image}
+                    alt={champion.displayName}
+                  />
+                  <span className="champion-card-name">
+                    {champion.displayName}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
           {error ? <p role="alert">{error}</p> : null}
         </section>
       )
@@ -282,17 +273,22 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
         : 'Pending'
 
       return (
-        <section>
-          <p>Tiebreak eliminated: {eliminatedChampionName}</p>
-          {tiebreakSubmission && tiebreak.eliminatedChampion
-            ? (
-              <p>
-                {tiebreakSubmission.championId === tiebreak.eliminatedChampion
-                  ? 'Your tiebreak champion was eliminated.'
-                  : 'Your tiebreak champion survived.'}
-              </p>
-            )
-            : null}
+        <section style={{ maxWidth: '420px' }}>
+          <div className="result-section">
+            <p className="result-label">Tiebreak Result</p>
+            <h2 className="result-champion-name">
+              {eliminatedChampionName}
+            </h2>
+            <p className="result-text">
+              {tiebreakSubmission && tiebreak.eliminatedChampion
+                ? (
+                  tiebreakSubmission.championId === tiebreak.eliminatedChampion
+                    ? <span className="result-status-eliminated">Your tiebreak champion was eliminated.</span>
+                    : <span className="result-status-survived">Your tiebreak champion survived!</span>
+                )
+                : 'Tiebreak results are being processed...'}
+            </p>
+          </div>
         </section>
       )
     }
@@ -303,11 +299,23 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     round.status === 'registration' ||
     round.status === 'countdown'
   ) {
-    return <p>Waiting for the game to begin...</p>
+    return (
+      <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+        <p className="section-subtitle" style={{ marginTop: '2rem', fontSize: 'clamp(1rem, 2vw, 1.2rem)' }}>
+          ⏳ Waiting for the game to begin...
+        </p>
+      </section>
+    )
   }
 
   if (round.status === 'closed') {
-    return <p>Submissions closed</p>
+    return (
+      <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+        <p className="section-subtitle" style={{ marginTop: '2rem', fontSize: 'clamp(1rem, 2vw, 1.2rem)' }}>
+          ⏸️ Submissions closed
+        </p>
+      </section>
+    )
   }
 
   if (round.status === 'result') {
@@ -321,28 +329,42 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
     const hasEliminatedChampion = Boolean(round.eliminatedChampion)
 
     return (
-      <section>
-        <p>Eliminated: {eliminatedChampionName}</p>
+      <section style={{ maxWidth: '420px' }}>
+        <div className="result-section">
+          <p className="result-label">Round Result</p>
+          <h2 className="result-champion-name">
+            {eliminatedChampionName}
+          </h2>
+          <p className="result-text">
+            {submission && hasEliminatedChampion
+              ? (
+                submission.championId === round.eliminatedChampion
+                  ? <span className="result-status-eliminated">Your champion was eliminated.</span>
+                  : <span className="result-status-survived">Your champion survived!</span>
+              )
+              : 'Results are being processed...'}
+          </p>
 
-        {submission && hasEliminatedChampion
-          ? (
-            <p>
-              {submission.championId === round.eliminatedChampion
-                ? 'Your champion was eliminated.'
-                : 'Your champion survived.'}
-            </p>
-          )
-          : null}
-
-        {round.isDemo
-          ? <p>Demo round - no points awarded.</p>
-          : (
-            <>
-              {didSubmit ? <p>Round score: {roundScore ? roundScore.score : 0}</p> : null}
-              <p>Total score: {totalScore}</p>
-              {showCurrentRank ? <p>Current rank: {currentRank}</p> : null}
-            </>
-          )}
+          {round.isDemo
+            ? <p className="result-text">Demo round - no points awarded.</p>
+            : (
+              <>
+                {didSubmit ? (
+                  <p className="result-text">
+                    Round score: <strong>{roundScore ? roundScore.score : 0}</strong>
+                  </p>
+                ) : null}
+                <p className="result-text">
+                  Total score: <strong>{totalScore}</strong>
+                </p>
+                {showCurrentRank ? (
+                  <p className="result-text">
+                    Current rank: <strong>#{currentRank}</strong>
+                  </p>
+                ) : null}
+              </>
+            )}
+        </div>
       </section>
     )
   }
@@ -350,84 +372,65 @@ function ParticipantGamePage({ uid }: ParticipantGamePageProps) {
   if (round.status === 'voting') {
     if (submission && selectedChampion) {
       return (
-        <section>
-           <p>You chose</p>
-
-  <img
-    src={selectedChampion.image}
-    alt={selectedChampion.displayName}
-    style={{
-      width: 'min(320px, 90vw)',
-      aspectRatio: '1 / 1',
-      objectFit: 'cover',
-      borderRadius: '16px',
-      display: 'block',
-      margin: '1rem auto',
-    }}
-  />
-
-  <p
-    style={{
-      fontSize: '1.5rem',
-      fontWeight: 700,
-      textAlign: 'center',
-    }}
-  >
-    {selectedChampion.displayName}
-  </p>
+        <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+          <div className="locked-section">
+            <h2 className="section-title">Your Champion</h2>
+            <img
+              src={selectedChampion.image}
+              alt={selectedChampion.displayName}
+              className="locked-champion-image"
+            />
+            <h3 className="locked-champion-name">
+              {selectedChampion.displayName}
+            </h3>
+            <p className="locked-status">Choice locked in ✓</p>
+            <p className="waiting-text">Waiting for the other players...</p>
+          </div>
         </section>
       )
     }
 
     return (
       <section>
-        <p>Choose your champion</p>
+        <h2 className="section-title">Choose Your Champion</h2>
+        <p className="section-subtitle">Tap once. Your choice is final.</p>
 
-        <div style={gridStyle}>
-  {CHAMPIONS.map((champion) => {
-    const isDisabled = isSubmitting
+        <div className="champion-grid">
+          {CHAMPIONS.map((champion) => {
+            const isDisabled = isSubmitting
 
-    return (
-      <button
-        key={champion.id}
-        type="button"
-        onClick={() => void handleChampionSelect(champion.id)}
-        disabled={isDisabled}
-        style={isDisabled ? disabledCardStyle : cardStyle}
-      >
-        <img
-          src={champion.image}
-          alt={champion.displayName}
-          style={{
-            width: '100%',
-            aspectRatio: '1 / 1',
-            objectFit: 'cover',
-            borderRadius: '12px',
-            marginBottom: '0.75rem',
-            display: 'block',
-          }}
-        />
-
-        <span
-          style={{
-            display: 'block',
-            fontSize: '1.1rem',
-            fontWeight: 700,
-          }}
-        >
-          {champion.displayName}
-        </span>
-      </button>
-    )
-  })}
-</div>
+            return (
+              <button
+                key={champion.id}
+                type="button"
+                onClick={() => void handleChampionSelect(champion.id)}
+                disabled={isDisabled}
+                className={`champion-card ${isDisabled ? 'disabled' : ''}`}
+              >
+                <img
+                  src={champion.image}
+                  alt={champion.displayName}
+                />
+                <span className="champion-card-name">
+                  {champion.displayName}
+                </span>
+              </button>
+            )
+          })}
+        </div>
 
         {error ? <p role="alert">{error}</p> : null}
       </section>
     )
   }
 
-  return <p>Waiting for the game to begin...</p>
+  return (
+    <section style={{ maxWidth: '420px', textAlign: 'center' }}>
+      <p className="section-subtitle" style={{ marginTop: '2rem', fontSize: 'clamp(1rem, 2vw, 1.2rem)' }}>
+        ⏳ Loading game...
+      </p>
+    </section>
+  )
 }
 
 export default ParticipantGamePage

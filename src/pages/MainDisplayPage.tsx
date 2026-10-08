@@ -378,7 +378,7 @@ function MainDisplayPage() {
 
   return (
     <div style={containerStyle}>
-      <h1 style={titleStyle}>CHAMPION GAME 2026</h1>
+      <h1 style={titleStyle}>BATTLE OF CHAMPIONS</h1>
       {renderRoundContent()}
     </div>
   )
