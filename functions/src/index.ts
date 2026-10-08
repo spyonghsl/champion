@@ -1,14 +1,14 @@
-import {initializeApp} from "firebase-admin/app";
+import { initializeApp } from "firebase-admin/app";
 import {
   getDatabase,
   type Reference,
   ServerValue,
 } from "firebase-admin/database";
 import * as logger from "firebase-functions/logger";
-import {setGlobalOptions} from "firebase-functions";
-import {HttpsError, onCall} from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 
-setGlobalOptions({maxInstances: 10});
+setGlobalOptions({ maxInstances: 10 });
 
 initializeApp();
 
@@ -882,15 +882,23 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       }
 
       const currentRoundVerify = currentRoundVerifySnapshot.val();
+      const verifiedRoundStatus =
+        currentRoundVerify && typeof currentRoundVerify === "object" ?
+          (currentRoundVerify as CurrentRound).status :
+          null;
       const verifiedRoundNumber =
         currentRoundVerify && typeof currentRoundVerify === "object" ?
           Number((currentRoundVerify as CurrentRound).roundNumber) :
           null;
 
       if (
+        !currentRoundVerifySnapshot.exists() ||
+        !currentRoundVerify ||
+        typeof currentRoundVerify !== "object" ||
         verifiedRoundNumber === null ||
         !Number.isFinite(verifiedRoundNumber) ||
-        verifiedRoundNumber !== initialRoundNumber
+        verifiedRoundNumber !== initialRoundNumber ||
+        verifiedRoundStatus !== "voting"
       ) {
         await submissionRef.remove();
         await rebuildCurrentRoundVotesFromSubmissions(
@@ -950,7 +958,7 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1036,7 +1044,7 @@ export const startDemoRound = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1084,9 +1092,9 @@ export const closeVoting = onCall<GameActionRequest>(
       );
     }
 
-    await currentRoundRef.update({status: "closed"});
+    await currentRoundRef.update({ status: "closed" });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1223,7 +1231,7 @@ export const startNextRound = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return {ok: true, roundNumber: nextRoundNumber};
+    return { ok: true, roundNumber: nextRoundNumber };
   }
 );
 
@@ -1738,7 +1746,7 @@ export const prepareFinalResult = onCall<GameActionRequest>(
         null;
 
     if (existingStatus === "finalized") {
-      return {ok: true, status: "finalized"};
+      return { ok: true, status: "finalized" };
     }
 
     const tiedUids = collectRelevantTieUids(rankedEntries);
@@ -1891,7 +1899,7 @@ export const startTiebreak = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1931,9 +1939,9 @@ export const closeTiebreakVoting = onCall<GameActionRequest>(
       );
     }
 
-    await tiebreakRef.update({status: "closed" as TiebreakStatus});
+    await tiebreakRef.update({ status: "closed" as TiebreakStatus });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -2069,7 +2077,7 @@ export const submitTiebreakChoice = onCall<SubmitTiebreakChoiceRequest>(
       );
     }
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -2104,7 +2112,7 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
 
     const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
     if (finalResult.status === "finalized") {
-      return {ok: true, status: "finalized"};
+      return { ok: true, status: "finalized" };
     }
 
     if (finalResult.status !== "tiebreak_required") {
@@ -2341,6 +2349,6 @@ export const resetGame = onCall<GameActionRequest>(
       resetBy: request.auth.uid,
     });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
