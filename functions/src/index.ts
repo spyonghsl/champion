@@ -1,5 +1,9 @@
 import {initializeApp} from "firebase-admin/app";
-import {getDatabase, ServerValue} from "firebase-admin/database";
+import {
+  getDatabase,
+  type Reference,
+  ServerValue,
+} from "firebase-admin/database";
 import * as logger from "firebase-functions/logger";
 import {setGlobalOptions} from "firebase-functions";
 import {HttpsError, onCall} from "firebase-functions/v2/https";
@@ -51,16 +55,7 @@ interface StoredSubmission {
   uid?: unknown;
   championId?: unknown;
   submittedAt?: unknown;
-}
-
-interface GameRoot {
-  currentRound?: CurrentRound;
-  participants?: Record<string, unknown>;
-  submissions?: Record<string, Record<string, StoredSubmission>>;
-  live?: {
-    currentRoundVotes?: Record<string, number>;
-  };
-  scores?: Record<string, { total?: unknown }>;
+  liveVoteCounted?: unknown;
 }
 
 interface RoundRecord {
@@ -240,6 +235,112 @@ function toValidElapsedMs(value: unknown): number | null {
  */
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));
+}
+
+/**
+ * Creates an empty champion vote total object.
+ * @return {Record<ChampionId, number>} Zeroed vote totals.
+ */
+function createEmptyChampionVoteTotals(): Record<ChampionId, number> {
+  return {
+    heracles: 0,
+    achilles: 0,
+    perseus: 0,
+    theseus: 0,
+  };
+}
+
+/**
+ * Counts authoritative vote totals from stored submissions.
+ * @param {Record<string, StoredSubmission>} submissionsRaw Round submissions.
+ * @return {Record<ChampionId, number>} Vote totals by champion.
+ */
+function countVotesFromSubmissions(
+  submissionsRaw: Record<string, StoredSubmission>
+): Record<ChampionId, number> {
+  const totals = createEmptyChampionVoteTotals();
+
+  for (const submission of Object.values(submissionsRaw)) {
+    if (submission && isChampionId(submission.championId)) {
+      totals[submission.championId] += 1;
+    }
+  }
+
+  return totals;
+}
+
+/**
+ * Loads authoritative submissions for a round.
+ * @param {*} db Database instance.
+ * @param {string} gameId Game id.
+ * @param {number} roundNumber Round number.
+ * @return {Promise<Record<string, StoredSubmission>>} Round submissions.
+ */
+async function loadRoundSubmissions(
+  db: ReturnType<typeof getDatabase>,
+  gameId: string,
+  roundNumber: number
+): Promise<Record<string, StoredSubmission>> {
+  const submissionsSnapshot = await db
+    .ref(`games/${gameId}/submissions/${roundNumber}`)
+    .get();
+
+  if (
+    !submissionsSnapshot.exists() ||
+    !submissionsSnapshot.val() ||
+    typeof submissionsSnapshot.val() !== "object"
+  ) {
+    return {};
+  }
+
+  return submissionsSnapshot.val() as Record<string, StoredSubmission>;
+}
+
+/**
+ * Rebuilds display vote totals from authoritative submissions.
+ * Submission records are authoritative; live/currentRoundVotes is derived
+ * display state and can be repaired safely after retries or partial failures.
+ * @param {*} db Database instance.
+ * @param {string} gameId Game id.
+ * @param {number} roundNumber Round number.
+ * @return {Promise<Record<ChampionId, number>>} Rebuilt vote totals.
+ */
+async function rebuildCurrentRoundVotesFromSubmissions(
+  db: ReturnType<typeof getDatabase>,
+  gameId: string,
+  roundNumber: number
+): Promise<Record<ChampionId, number>> {
+  const submissionsRaw = await loadRoundSubmissions(db, gameId, roundNumber);
+  const totals = countVotesFromSubmissions(submissionsRaw);
+
+  await db.ref(`games/${gameId}/live/currentRoundVotes`).set(totals);
+
+  return totals;
+}
+
+/**
+ * Marks a submission as already reflected in live vote totals.
+ * @param {Reference} submissionRef Submission ref.
+ * @return {Promise<void>} Resolves when marker update completes.
+ */
+async function markSubmissionLiveVoteCounted(
+  submissionRef: Reference
+): Promise<void> {
+  await submissionRef.transaction((current) => {
+    if (!current || typeof current !== "object") {
+      return current;
+    }
+
+    const submission = current as StoredSubmission;
+    if (submission.liveVoteCounted === true) {
+      return current;
+    }
+
+    return {
+      ...submission,
+      liveVoteCounted: true,
+    };
+  });
 }
 
 /**
@@ -654,11 +755,15 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
-    // Verify that the participant is registered
-    const participantRef = getDatabase().ref(
-      `games/${gameId}/participants/${uid}`,
-    );
-    const participantSnapshot = await participantRef.get();
+    const db = getDatabase();
+    const participantRef = db.ref(`games/${gameId}/participants/${uid}`);
+    const currentRoundRef = db.ref(`games/${gameId}/currentRound`);
+
+    const [participantSnapshot, currentRoundSnapshot] = await Promise.all([
+      participantRef.get(),
+      currentRoundRef.get(),
+    ]);
+
     if (!participantSnapshot.exists()) {
       throw new HttpsError(
         "failed-precondition",
@@ -666,17 +771,14 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
-    const gameRef = getDatabase().ref(`games/${gameId}`);
-    const gameSnapshot = await gameRef.get();
-    if (!gameSnapshot.exists()) {
+    if (!currentRoundSnapshot.exists()) {
       throw new HttpsError(
         "failed-precondition",
-        "No current game is available."
+        "No current round is available."
       );
     }
 
-    const initialGame = gameSnapshot.val() as GameRoot;
-    const initialCurrentRound = initialGame.currentRound;
+    const initialCurrentRound = currentRoundSnapshot.val();
     if (!initialCurrentRound || typeof initialCurrentRound !== "object") {
       throw new HttpsError(
         "failed-precondition",
@@ -699,79 +801,53 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
+    const roundKey = String(initialRoundNumber);
+    const submissionRef = db.ref(
+      `games/${gameId}/submissions/${roundKey}/${uid}`
+    );
+    const voteCountRef = db.ref(
+      `games/${gameId}/live/currentRoundVotes/${championId}`
+    );
+
     let abortedBecauseAlreadySubmitted = false;
+    let committedNewSubmission = false;
 
     try {
-      const transactionResult = await gameRef.transaction((current) => {
-        const game = (
-          current && typeof current === "object" ?
-            current :
-            initialGame
-        ) as GameRoot;
-        const currentRound = game.currentRound;
-
-        if (!currentRound || typeof currentRound !== "object") {
-          throw new HttpsError(
-            "failed-precondition",
-            "No current round is available."
-          );
-        }
-
-        if (currentRound.status !== "voting") {
-          throw new HttpsError(
-            "failed-precondition",
-            "Submissions are only allowed during voting."
-          );
-        }
-
-        const roundNumber = Number(currentRound.roundNumber);
-        if (!Number.isFinite(roundNumber)) {
-          throw new HttpsError(
-            "failed-precondition",
-            "Current round number is invalid."
-          );
-        }
-
-        const roundKey = String(roundNumber);
-        const roundSubmissions = game.submissions?.[roundKey] ?? {};
-
-        if (roundSubmissions[uid]) {
+      const transactionResult = await submissionRef.transaction((current) => {
+        if (current && typeof current === "object") {
           abortedBecauseAlreadySubmitted = true;
           return;
         }
 
-        const currentVotes = game.live?.currentRoundVotes ?? {};
-        const nextVotes = {
-          heracles: Number(currentVotes.heracles ?? 0),
-          achilles: Number(currentVotes.achilles ?? 0),
-          perseus: Number(currentVotes.perseus ?? 0),
-          theseus: Number(currentVotes.theseus ?? 0),
-        };
-
-        nextVotes[championId] += 1;
-
         return {
-          ...game,
-          submissions: {
-            ...(game.submissions ?? {}),
-            [roundKey]: {
-              ...roundSubmissions,
-              [uid]: {
-                uid,
-                championId,
-                submittedAt: ServerValue.TIMESTAMP,
-              },
-            },
-          },
-          live: {
-            ...(game.live ?? {}),
-            currentRoundVotes: nextVotes,
-          },
+          uid,
+          championId,
+          submittedAt: ServerValue.TIMESTAMP,
+          liveVoteCounted: false,
         };
       });
 
       if (!transactionResult.committed) {
         if (abortedBecauseAlreadySubmitted) {
+          const existingSubmission = transactionResult.snapshot.exists() &&
+            transactionResult.snapshot.val() &&
+            typeof transactionResult.snapshot.val() === "object" ?
+            transactionResult.snapshot.val() as StoredSubmission :
+            null;
+
+          if (
+            existingSubmission &&
+            isChampionId(existingSubmission.championId) &&
+            existingSubmission.liveVoteCounted !== true
+          ) {
+            await rebuildCurrentRoundVotesFromSubmissions(
+              db,
+              gameId,
+              initialRoundNumber
+            );
+            await markSubmissionLiveVoteCounted(submissionRef);
+          }
+
           throw new HttpsError(
             "already-exists",
             "You already submitted a champion for this round."
@@ -783,9 +859,89 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
           "Submission could not be completed."
         );
       }
+
+      committedNewSubmission = true;
+
+      const [participantVerifySnapshot, currentRoundVerifySnapshot] =
+        await Promise.all([
+          participantRef.get(),
+          currentRoundRef.get(),
+        ]);
+
+      if (!participantVerifySnapshot.exists()) {
+        await submissionRef.remove();
+        await rebuildCurrentRoundVotesFromSubmissions(
+          db,
+          gameId,
+          initialRoundNumber
+        );
+        throw new HttpsError(
+          "failed-precondition",
+          "Participant is not registered."
+        );
+      }
+
+      const currentRoundVerify = currentRoundVerifySnapshot.val();
+      const verifiedRoundNumber =
+        currentRoundVerify && typeof currentRoundVerify === "object" ?
+          Number((currentRoundVerify as CurrentRound).roundNumber) :
+          null;
+
+      if (
+        verifiedRoundNumber === null ||
+        !Number.isFinite(verifiedRoundNumber) ||
+        verifiedRoundNumber !== initialRoundNumber
+      ) {
+        await submissionRef.remove();
+        await rebuildCurrentRoundVotesFromSubmissions(
+          db,
+          gameId,
+          initialRoundNumber
+        );
+        throw new HttpsError(
+          "failed-precondition",
+          "Submissions are not available right now."
+        );
+      }
+
+      try {
+        await voteCountRef.transaction((current) => {
+          const currentTotal = Number(current);
+          return Number.isFinite(currentTotal) ? currentTotal + 1 : 1;
+        });
+        await markSubmissionLiveVoteCounted(submissionRef);
+      } catch (voteCountError) {
+        logger.warn(
+          "Live vote increment failed; rebuilding from submissions.",
+          {
+            gameId,
+            roundNumber: initialRoundNumber,
+            uid,
+            championId,
+            error: voteCountError,
+          }
+        );
+
+        await rebuildCurrentRoundVotesFromSubmissions(
+          db,
+          gameId,
+          initialRoundNumber
+        );
+        await markSubmissionLiveVoteCounted(submissionRef);
+      }
     } catch (error) {
       if (error instanceof HttpsError) {
         throw error;
+      }
+
+      if (committedNewSubmission) {
+        logger.warn("Submission write succeeded but follow-up work failed.", {
+          gameId,
+          roundNumber: initialRoundNumber,
+          uid,
+          championId,
+          error,
+        });
       }
 
       throw new HttpsError(
@@ -1132,28 +1288,8 @@ export const finalizeRound = onCall<GameActionRequest>(
       );
     }
 
-    const votesRef = db.ref(`games/${gameId}/live/currentRoundVotes`);
-    const votesSnapshot = await votesRef.get();
-    const rawVotes = votesSnapshot.exists() &&
-      votesSnapshot.val() &&
-      typeof votesSnapshot.val() === "object" ?
-      votesSnapshot.val() as Record<string, unknown> :
-      {};
-
-    const totals: Record<ChampionId, number> = {
-      heracles: Number.isFinite(Number(rawVotes.heracles)) ?
-        Number(rawVotes.heracles) :
-        0,
-      achilles: Number.isFinite(Number(rawVotes.achilles)) ?
-        Number(rawVotes.achilles) :
-        0,
-      perseus: Number.isFinite(Number(rawVotes.perseus)) ?
-        Number(rawVotes.perseus) :
-        0,
-      theseus: Number.isFinite(Number(rawVotes.theseus)) ?
-        Number(rawVotes.theseus) :
-        0,
-    };
+    const submissionsRaw = await loadRoundSubmissions(db, gameId, roundNumber);
+    const totals = countVotesFromSubmissions(submissionsRaw);
 
     const highestVotes = Math.max(
       totals.heracles,
@@ -1254,6 +1390,7 @@ export const finalizeRound = onCall<GameActionRequest>(
     const updates: Record<string, unknown> = {
       "currentRound/status": "result",
       "currentRound/eliminatedChampion": authoritativeEliminatedChampion,
+      "live/currentRoundVotes": totals,
     };
 
     if (roundNumber >= 1 && roundNumber <= 4) {
@@ -1286,17 +1423,6 @@ export const finalizeRound = onCall<GameActionRequest>(
           participantsSnapshot.val() &&
           typeof participantsSnapshot.val() === "object" ?
           participantsSnapshot.val() as Record<string, unknown> :
-          {};
-
-      const submissionsSnapshot = await db
-        .ref(`games/${gameId}/submissions/${roundNumber}`)
-        .get();
-      const submissionsRaw =
-        submissionsSnapshot.exists() &&
-          submissionsSnapshot.val() &&
-          typeof submissionsSnapshot.val() === "object" ?
-          submissionsSnapshot.val() as
-          Record<string, StoredSubmission> :
           {};
 
       const scoresSnapshot = await db.ref(`games/${gameId}/scores`).get();
