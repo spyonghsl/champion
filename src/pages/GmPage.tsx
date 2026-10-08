@@ -10,6 +10,7 @@ import {
   finalizeRound,
   finalizeTiebreak,
   prepareFinalResult,
+  resetGame,
   startDemoRound,
   startNextRound,
   startTiebreak,
@@ -136,6 +137,27 @@ function GmControls() {
       await signOutGm()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign-out failed.')
+    }
+  }
+
+  async function handleResetGame() {
+    const confirmed = confirm(
+      'Reset all game data? This will remove registrations, scores, rounds, and results.'
+    )
+    if (!confirmed) {
+      return
+    }
+
+    setIsActing(true)
+    setError(null)
+    try {
+      await resetGame()
+      setError(null)
+      // UI will update naturally via subscriptions
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to reset game.')
+    } finally {
+      setIsActing(false)
     }
   }
 
@@ -456,6 +478,27 @@ function GmControls() {
           </ol>
         </details>
       )}
+      <hr style={{ margin: '2rem 0' }} />
+      <div style={{ padding: '1rem', border: '1px solid #ccc', borderRadius: '4px' }}>
+        <h3>Danger Zone</h3>
+        <p>Reset all game data (registrations, scores, rounds, results).</p>
+        <button
+          type="button"
+          onClick={() => void handleResetGame()}
+          disabled={isActing}
+          style={{
+            backgroundColor: '#dc3545',
+            color: 'white',
+            padding: '0.5rem 1rem',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: isActing ? 'not-allowed' : 'pointer',
+            opacity: isActing ? 0.6 : 1,
+          }}
+        >
+          {isActing ? 'Resetting...' : 'Reset Game'}
+        </button>
+      </div>
       <button type="button" onClick={() => void handleSignOut()}>
         Sign Out
       </button>

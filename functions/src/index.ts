@@ -1,10 +1,10 @@
-import { initializeApp } from "firebase-admin/app";
-import { getDatabase, ServerValue } from "firebase-admin/database";
+import {initializeApp} from "firebase-admin/app";
+import {getDatabase, ServerValue} from "firebase-admin/database";
 import * as logger from "firebase-functions/logger";
-import { setGlobalOptions } from "firebase-functions";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import {setGlobalOptions} from "firebase-functions";
+import {HttpsError, onCall} from "firebase-functions/v2/https";
 
-setGlobalOptions({ maxInstances: 10 });
+setGlobalOptions({maxInstances: 10});
 
 initializeApp();
 
@@ -782,7 +782,7 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -868,7 +868,7 @@ export const startDemoRound = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -916,9 +916,9 @@ export const closeVoting = onCall<GameActionRequest>(
       );
     }
 
-    await currentRoundRef.update({ status: "closed" });
+    await currentRoundRef.update({status: "closed"});
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1055,7 +1055,7 @@ export const startNextRound = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return { ok: true, roundNumber: nextRoundNumber };
+    return {ok: true, roundNumber: nextRoundNumber};
   }
 );
 
@@ -1600,7 +1600,7 @@ export const prepareFinalResult = onCall<GameActionRequest>(
         null;
 
     if (existingStatus === "finalized") {
-      return { ok: true, status: "finalized" };
+      return {ok: true, status: "finalized"};
     }
 
     const tiedUids = collectRelevantTieUids(rankedEntries);
@@ -1753,7 +1753,7 @@ export const startTiebreak = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1793,9 +1793,9 @@ export const closeTiebreakVoting = onCall<GameActionRequest>(
       );
     }
 
-    await tiebreakRef.update({ status: "closed" as TiebreakStatus });
+    await tiebreakRef.update({status: "closed" as TiebreakStatus});
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1931,7 +1931,7 @@ export const submitTiebreakChoice = onCall<SubmitTiebreakChoiceRequest>(
       );
     }
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1966,7 +1966,7 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
 
     const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
     if (finalResult.status === "finalized") {
-      return { ok: true, status: "finalized" };
+      return {ok: true, status: "finalized"};
     }
 
     if (finalResult.status !== "tiebreak_required") {
@@ -2152,5 +2152,57 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
       eliminatedChampion,
       randomDrawUsed: shouldUseRandomDraw,
     };
+  }
+);
+
+export const resetGame = onCall<GameActionRequest>(
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError(
+        "unauthenticated",
+        "Authentication is required."
+      );
+    }
+
+    const gameId = request.data?.gameId;
+    if (!isValidGameId(gameId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "A valid gameId is required."
+      );
+    }
+
+    await requireGm(request.auth.uid, gameId);
+
+    const db = getDatabase();
+
+    const updates: Record<string, unknown> = {
+      "currentRound": null,
+      "participants": null,
+      "submissions": null,
+      "scores": null,
+      "leaderboard": null,
+      "finalResult": null,
+      "tiebreak": null,
+      "roundResults": null,
+      "live/registeredCount": 0,
+      "live/currentRoundVotes": {
+        "heracles": 0,
+        "achilles": 0,
+        "perseus": 0,
+        "theseus": 0,
+      },
+      "display/video": null,
+      "display/videoStatus": null,
+    };
+
+    await db.ref(`games/${gameId}`).update(updates);
+
+    logger.info("Game reset completed", {
+      gameId,
+      resetBy: request.auth.uid,
+    });
+
+    return {ok: true};
   }
 );

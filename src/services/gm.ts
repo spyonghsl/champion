@@ -292,3 +292,28 @@ export async function finalizeTiebreak(): Promise<void> {
         throw new Error('Failed to finalize tiebreak.', { cause: error })
     }
 }
+
+export async function resetGame(): Promise<void> {
+    const callable = httpsCallable<{ gameId: string }, CallableResult>(
+        functions,
+        'resetGame',
+    )
+
+    try {
+        await callable({ gameId: GAME_ID })
+    } catch (error: unknown) {
+        const code = extractCallableCode(error)
+
+        if (code === 'unauthenticated') {
+            throw new Error('You must be signed in to reset the game.', { cause: error })
+        }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
+        }
+        if (code === 'invalid-argument') {
+            throw new Error('The game id was invalid.', { cause: error })
+        }
+
+        throw new Error('Failed to reset game.', { cause: error })
+    }
+}
