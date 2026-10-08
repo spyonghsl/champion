@@ -1,14 +1,14 @@
-import { initializeApp } from "firebase-admin/app";
+import {initializeApp} from "firebase-admin/app";
 import {
   getDatabase,
   type Reference,
   ServerValue,
 } from "firebase-admin/database";
 import * as logger from "firebase-functions/logger";
-import { setGlobalOptions } from "firebase-functions";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import {setGlobalOptions} from "firebase-functions";
+import {HttpsError, onCall} from "firebase-functions/v2/https";
 
-setGlobalOptions({ maxInstances: 10 });
+setGlobalOptions({maxInstances: 10});
 
 initializeApp();
 
@@ -48,6 +48,7 @@ interface CurrentRound {
   isDemo?: unknown;
   startedAt?: unknown;
   endsAt?: unknown;
+  closedAt?: unknown;
   eliminatedChampion?: unknown;
 }
 
@@ -64,6 +65,7 @@ interface RoundRecord {
   status: "countdown" | "voting" | "closed" | "result" | "registration";
   startedAt: number | null;
   endsAt: number | null;
+  closedAt: number | null;
   eliminatedChampion: ChampionId | null;
 }
 
@@ -267,6 +269,28 @@ function countVotesFromSubmissions(
   }
 
   return totals;
+}
+
+/**
+ * Keeps only submissions made on or before the authoritative close time.
+ * @param {Record<string, StoredSubmission>} submissionsRaw Round submissions.
+ * @param {number} closedAt Authoritative server close timestamp.
+ * @return {Record<string, StoredSubmission>} Filtered submissions.
+ */
+function filterSubmissionsByClosedAt(
+  submissionsRaw: Record<string, StoredSubmission>,
+  closedAt: number
+): Record<string, StoredSubmission> {
+  const filtered: Record<string, StoredSubmission> = {};
+
+  for (const [uid, submission] of Object.entries(submissionsRaw)) {
+    const submittedAt = toFiniteNumber(submission?.submittedAt);
+    if (submittedAt !== null && submittedAt <= closedAt) {
+      filtered[uid] = submission;
+    }
+  }
+
+  return filtered;
 }
 
 /**
@@ -958,7 +982,7 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -998,6 +1022,7 @@ export const startDemoRound = onCall<GameActionRequest>(
       status: "countdown",
       startedAt: null,
       endsAt: null,
+      closedAt: null,
       eliminatedChampion: null,
     };
 
@@ -1042,9 +1067,10 @@ export const startDemoRound = onCall<GameActionRequest>(
       status: "voting",
       startedAt,
       endsAt: startedAt + 20000,
+      closedAt: null,
     });
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1092,9 +1118,12 @@ export const closeVoting = onCall<GameActionRequest>(
       );
     }
 
-    await currentRoundRef.update({ status: "closed" });
+    await currentRoundRef.update({
+      status: "closed",
+      closedAt: ServerValue.TIMESTAMP,
+    });
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1182,6 +1211,7 @@ export const startNextRound = onCall<GameActionRequest>(
       status: "countdown",
       startedAt: null,
       endsAt: null,
+      closedAt: null,
       eliminatedChampion: null,
     };
 
@@ -1229,9 +1259,10 @@ export const startNextRound = onCall<GameActionRequest>(
       status: "voting",
       startedAt,
       endsAt: startedAt + 20000,
+      closedAt: null,
     });
 
-    return { ok: true, roundNumber: nextRoundNumber };
+    return {ok: true, roundNumber: nextRoundNumber};
   }
 );
 
@@ -1297,7 +1328,54 @@ export const finalizeRound = onCall<GameActionRequest>(
     }
 
     const submissionsRaw = await loadRoundSubmissions(db, gameId, roundNumber);
-    const totals = countVotesFromSubmissions(submissionsRaw);
+
+    const verifyBeforeUpdate = await currentRoundRef.get();
+    if (!verifyBeforeUpdate.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const verifyValue = verifyBeforeUpdate.val();
+    if (!verifyValue || typeof verifyValue !== "object") {
+      throw new HttpsError(
+        "failed-precondition",
+        "No current round is available."
+      );
+    }
+
+    const verifyRound = verifyValue as RoundRecord;
+    if (verifyRound.status === "result") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is already finalized."
+      );
+    }
+
+    if (verifyRound.status !== "closed") {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round is not ready to be finalized."
+      );
+    }
+
+    const startedAt = toFiniteNumber(verifyRound.startedAt);
+    const endsAt = toFiniteNumber(verifyRound.endsAt);
+    const closedAt = toFiniteNumber(verifyRound.closedAt);
+
+    if (closedAt === null) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Round close timestamp is invalid."
+      );
+    }
+
+    const eligibleSubmissions = filterSubmissionsByClosedAt(
+      submissionsRaw,
+      closedAt
+    );
+    const totals = countVotesFromSubmissions(eligibleSubmissions);
 
     const highestVotes = Math.max(
       totals.heracles,
@@ -1361,40 +1439,6 @@ export const finalizeRound = onCall<GameActionRequest>(
     const authoritativeEliminatedChampion = storedResult.eliminatedChampion;
     const authoritativeVideoCommandId = storedResult.videoCommandId;
 
-    const verifyBeforeUpdate = await currentRoundRef.get();
-    if (!verifyBeforeUpdate.exists()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "No current round is available."
-      );
-    }
-
-    const verifyValue = verifyBeforeUpdate.val();
-    if (!verifyValue || typeof verifyValue !== "object") {
-      throw new HttpsError(
-        "failed-precondition",
-        "No current round is available."
-      );
-    }
-
-    const verifyRound = verifyValue as RoundRecord;
-    if (verifyRound.status === "result") {
-      throw new HttpsError(
-        "failed-precondition",
-        "Round is already finalized."
-      );
-    }
-
-    if (verifyRound.status !== "closed") {
-      throw new HttpsError(
-        "failed-precondition",
-        "Round is not ready to be finalized."
-      );
-    }
-
-    const startedAt = toFiniteNumber(verifyRound.startedAt);
-    const endsAt = toFiniteNumber(verifyRound.endsAt);
-
     const updates: Record<string, unknown> = {
       "currentRound/status": "result",
       "currentRound/eliminatedChampion": authoritativeEliminatedChampion,
@@ -1447,7 +1491,7 @@ export const finalizeRound = onCall<GameActionRequest>(
 
       for (const uid of Object.keys(participantsRaw)) {
         const roundScore = calculateRoundScore(
-          submissionsRaw[uid],
+          eligibleSubmissions[uid],
           authoritativeEliminatedChampion,
           startedAt,
           endsAt
@@ -1746,7 +1790,7 @@ export const prepareFinalResult = onCall<GameActionRequest>(
         null;
 
     if (existingStatus === "finalized") {
-      return { ok: true, status: "finalized" };
+      return {ok: true, status: "finalized"};
     }
 
     const tiedUids = collectRelevantTieUids(rankedEntries);
@@ -1899,7 +1943,7 @@ export const startTiebreak = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -1939,9 +1983,9 @@ export const closeTiebreakVoting = onCall<GameActionRequest>(
       );
     }
 
-    await tiebreakRef.update({ status: "closed" as TiebreakStatus });
+    await tiebreakRef.update({status: "closed" as TiebreakStatus});
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -2077,7 +2121,7 @@ export const submitTiebreakChoice = onCall<SubmitTiebreakChoiceRequest>(
       );
     }
 
-    return { ok: true };
+    return {ok: true};
   }
 );
 
@@ -2112,7 +2156,7 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
 
     const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
     if (finalResult.status === "finalized") {
-      return { ok: true, status: "finalized" };
+      return {ok: true, status: "finalized"};
     }
 
     if (finalResult.status !== "tiebreak_required") {
@@ -2349,6 +2393,6 @@ export const resetGame = onCall<GameActionRequest>(
       resetBy: request.auth.uid,
     });
 
-    return { ok: true };
+    return {ok: true};
   }
 );
