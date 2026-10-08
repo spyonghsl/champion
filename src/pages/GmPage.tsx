@@ -25,10 +25,20 @@ function GmPage() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser && currentUser.isAnonymous) {
+        // Anonymous users on /gm route must sign out and login as GM
+        await signOutGm()
+        setUser(null)
+        setIsLoading(false)
+        return
+      }
+
       if (currentUser) {
+        // Non-anonymous authenticated user (email/password GM)
         setUser({ uid: currentUser.uid, email: currentUser.email })
       } else {
+        // No authenticated user
         setUser(null)
       }
       setIsLoading(false)
