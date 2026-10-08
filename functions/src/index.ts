@@ -654,6 +654,18 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
+    // Verify that the participant is registered
+    const participantRef = getDatabase().ref(
+      `games/${gameId}/participants/${uid}`,
+    );
+    const participantSnapshot = await participantRef.get();
+    if (!participantSnapshot.exists()) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Participant is not registered."
+      );
+    }
+
     const gameRef = getDatabase().ref(`games/${gameId}`);
     const gameSnapshot = await gameRef.get();
     if (!gameSnapshot.exists()) {

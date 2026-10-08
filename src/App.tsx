@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
+import { onValue, ref } from 'firebase/database'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 
-import { auth } from './firebase/config'
+import { auth, db } from './firebase/config'
 import GmPage from './pages/GmPage'
 import MainDisplayPage from './pages/MainDisplayPage'
 import ParticipantGamePage from './pages/ParticipantGamePage'
 import RegistrationPage from './pages/RegistrationPage'
-import { getParticipant } from './services/registration'
+import { getParticipant, GAME_ID } from './services/registration'
 import type { Participant } from './types/participant'
 
 type ParticipantState =
@@ -55,6 +56,34 @@ function PlayerPage() {
 
     return unsubscribe
   }, [loadParticipant])
+
+  // Subscribe to participant record for real-time deletion detection
+  useEffect(() => {
+    if (!uid) return
+
+    const participantRef = ref(db, `games/${GAME_ID}/participants/${uid}`)
+    const unsubscribe = onValue(
+      participantRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          // Participant was deleted (e.g., during reset)
+          setParticipantState({ status: 'unregistered' })
+        } else if (participantState.status === 'registered') {
+          // Participant still exists and we're already registered, update data if needed
+          const participant = snapshot.val() as Participant
+          setParticipantState({
+            status: 'registered',
+            participant,
+          })
+        }
+      },
+      (error) => {
+        console.error('Failed to subscribe to participant changes:', error)
+      },
+    )
+
+    return unsubscribe
+  }, [uid, participantState.status])
 
   function renderContent() {
     if (participantState.status === 'error') {

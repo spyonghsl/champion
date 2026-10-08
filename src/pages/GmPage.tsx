@@ -126,11 +126,20 @@ function GmControls() {
   const [tiebreak, setTiebreak] = useState<Tiebreak | null>(null)
   const [isActing, setIsActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   useEffect(() => subscribeToCurrentRound(setRound), [])
   useEffect(() => subscribeToLeaderboard(setLeaderboard), [])
   useEffect(() => subscribeToFinalResult(setFinalResult), [])
   useEffect(() => subscribeToTiebreak(setTiebreak), [])
+
+  // Auto-clear success message after 3 seconds
+  useEffect(() => {
+    if (!successMessage) return
+
+    const timeout = setTimeout(() => setSuccessMessage(null), 3000)
+    return () => clearTimeout(timeout)
+  }, [successMessage])
 
   async function handleSignOut() {
     try {
@@ -150,10 +159,10 @@ function GmControls() {
 
     setIsActing(true)
     setError(null)
+    setSuccessMessage(null)
     try {
       await resetGame()
-      setError(null)
-      // UI will update naturally via subscriptions
+      setSuccessMessage('Game reset complete.')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to reset game.')
     } finally {
@@ -445,6 +454,7 @@ function GmControls() {
     <>
       <h2>GM Controls</h2>
       {error && <p role="alert">{error}</p>}
+      {successMessage && <p style={{ color: 'green' }}>{successMessage}</p>}
       <div>
         <h3>Current Round: {round?.roundNumber}</h3>
         <p>Status: {round?.status}</p>
