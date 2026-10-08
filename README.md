@@ -19,7 +19,7 @@ In Firebase Console:
 
 1. In Firebase Console, go to **Authentication** → **Users**
 2. Click **Create user** and enter:
-   - Email: `gm@champion.local`
+   - Email: `it_dept@rumeparkhotel.com.my`
    - Password: (Generate a strong password; never commit it to source code)
 3. Copy the **User UID** from the created account
 
@@ -48,7 +48,7 @@ firebase deploy --only functions
 #### 5. Access GM Dashboard
 
 1. Navigate to `/gm` route in the application
-2. Enter only the password (email is auto-filled as `gm@champion.local`)
+2. Enter only the password (email is auto-filled as `it_dept@rumeparkhotel.com.my`)
 3. Click **Sign In**
 
 ### Security Model

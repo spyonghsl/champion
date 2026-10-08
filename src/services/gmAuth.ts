@@ -2,7 +2,7 @@ import { signInWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase
 
 import { auth } from '../firebase/config'
 
-const GM_EMAIL = 'gm@champion.local'
+const GM_EMAIL = 'it_dept@rumeparkhotel.com.my'
 
 /**
  * Sign in as a Game Master using email/password.
