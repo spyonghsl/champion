@@ -1,10 +1,10 @@
-import {initializeApp} from "firebase-admin/app";
-import {getDatabase, ServerValue} from "firebase-admin/database";
+import { initializeApp } from "firebase-admin/app";
+import { getDatabase, ServerValue } from "firebase-admin/database";
 import * as logger from "firebase-functions/logger";
-import {setGlobalOptions} from "firebase-functions";
-import {HttpsError, onCall} from "firebase-functions/v2/https";
+import { setGlobalOptions } from "firebase-functions";
+import { HttpsError, onCall } from "firebase-functions/v2/https";
 
-setGlobalOptions({maxInstances: 10});
+setGlobalOptions({ maxInstances: 10 });
 
 initializeApp();
 
@@ -552,6 +552,36 @@ function calculateRoundScore(
 }
 
 /**
+ * Requires caller to be an authorized GM for the game.
+ * @param {string | undefined} uid Firebase authentication uid.
+ * @param {string} gameId Game id to check.
+ * @return {Promise<void>} Resolves if authorized, throws otherwise.
+ */
+async function requireGm(
+  uid: string | undefined,
+  gameId: string
+): Promise<void> {
+  if (!uid) {
+    throw new HttpsError(
+      "unauthenticated",
+      "Authentication is required."
+    );
+  }
+
+  const db = getDatabase();
+  const gmSnapshot = await db
+    .ref(`games/${gameId}/admin/gmUids/${uid}`)
+    .get();
+
+  if (gmSnapshot.val() !== true) {
+    throw new HttpsError(
+      "permission-denied",
+      "You are not authorized as a Game Master."
+    );
+  }
+}
+
+/**
  * Generates a unique persistent video command id.
  * @return {string} Unique video command id.
  */
@@ -752,7 +782,7 @@ export const submitChampionChoice = onCall<SubmitChampionChoiceRequest>(
       );
     }
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -765,7 +795,6 @@ export const startDemoRound = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -773,6 +802,8 @@ export const startDemoRound = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const gameRef = getDatabase().ref(`games/${gameId}`);
     const currentRoundRef = getDatabase().ref(`games/${gameId}/currentRound`);
@@ -837,7 +868,7 @@ export const startDemoRound = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -850,7 +881,6 @@ export const closeVoting = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -858,6 +888,8 @@ export const closeVoting = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const currentRoundRef = getDatabase().ref(`games/${gameId}/currentRound`);
     const currentRoundSnapshot = await currentRoundRef.get();
@@ -884,9 +916,9 @@ export const closeVoting = onCall<GameActionRequest>(
       );
     }
 
-    await currentRoundRef.update({status: "closed"});
+    await currentRoundRef.update({ status: "closed" });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -899,7 +931,6 @@ export const startNextRound = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -907,6 +938,8 @@ export const startNextRound = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const db = getDatabase();
     const gameRef = db.ref(`games/${gameId}`);
@@ -1022,7 +1055,7 @@ export const startNextRound = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return {ok: true, roundNumber: nextRoundNumber};
+    return { ok: true, roundNumber: nextRoundNumber };
   }
 );
 
@@ -1035,7 +1068,6 @@ export const finalizeRound = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -1043,6 +1075,8 @@ export const finalizeRound = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const db = getDatabase();
     const currentRoundRef = db.ref(`games/${gameId}/currentRound`);
@@ -1160,7 +1194,7 @@ export const finalizeRound = onCall<GameActionRequest>(
 
     if (
       typeof storedResult.videoCommandId !== "string" ||
-        !storedResult.videoCommandId
+      !storedResult.videoCommandId
     ) {
       throw new HttpsError(
         "failed-precondition",
@@ -1314,7 +1348,6 @@ export const buildLeaderboard = onCall<BuildLeaderboardRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -1322,6 +1355,8 @@ export const buildLeaderboard = onCall<BuildLeaderboardRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const db = getDatabase();
     const currentRoundSnapshot = await db
@@ -1477,7 +1512,6 @@ export const prepareFinalResult = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -1485,6 +1519,8 @@ export const prepareFinalResult = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const db = getDatabase();
     const currentRoundSnapshot = await db
@@ -1564,7 +1600,7 @@ export const prepareFinalResult = onCall<GameActionRequest>(
         null;
 
     if (existingStatus === "finalized") {
-      return {ok: true, status: "finalized"};
+      return { ok: true, status: "finalized" };
     }
 
     const tiedUids = collectRelevantTieUids(rankedEntries);
@@ -1635,7 +1671,6 @@ export const startTiebreak = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -1643,6 +1678,8 @@ export const startTiebreak = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const db = getDatabase();
     const finalResultSnapshot = await db
@@ -1716,7 +1753,7 @@ export const startTiebreak = onCall<GameActionRequest>(
       endsAt: startedAt + 20000,
     });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1729,7 +1766,6 @@ export const closeTiebreakVoting = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -1737,6 +1773,8 @@ export const closeTiebreakVoting = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const tiebreakRef = getDatabase().ref(`games/${gameId}/tiebreak`);
     const tiebreakSnapshot = await tiebreakRef.get();
@@ -1755,9 +1793,9 @@ export const closeTiebreakVoting = onCall<GameActionRequest>(
       );
     }
 
-    await tiebreakRef.update({status: "closed" as TiebreakStatus});
+    await tiebreakRef.update({ status: "closed" as TiebreakStatus });
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1893,7 +1931,7 @@ export const submitTiebreakChoice = onCall<SubmitTiebreakChoiceRequest>(
       );
     }
 
-    return {ok: true};
+    return { ok: true };
   }
 );
 
@@ -1906,7 +1944,6 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
       );
     }
 
-    // TODO: Restrict this action to authorized GM users before production.
     const gameId = request.data?.gameId;
     if (!isValidGameId(gameId)) {
       throw new HttpsError(
@@ -1914,6 +1951,8 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
         "A valid gameId is required."
       );
     }
+
+    await requireGm(request.auth.uid, gameId);
 
     const db = getDatabase();
     const finalResultRef = db.ref(`games/${gameId}/finalResult`);
@@ -1927,7 +1966,7 @@ export const finalizeTiebreak = onCall<GameActionRequest>(
 
     const finalResult = finalResultSnapshot.val() as StoredFinalResultRecord;
     if (finalResult.status === "finalized") {
-      return {ok: true, status: "finalized"};
+      return { ok: true, status: "finalized" };
     }
 
     if (finalResult.status !== "tiebreak_required") {

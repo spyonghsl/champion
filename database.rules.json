@@ -63,6 +63,10 @@
           ".read": true,
           ".write": false
         },
+        "admin": {
+          ".read": false,
+          ".write": false
+        },
         "tiebreak": {
           ".read": false,
           ".write": false,

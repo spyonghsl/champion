@@ -50,6 +50,9 @@ export async function startDemoRound(): Promise<void> {
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to start a round.', { cause: error })
         }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
+        }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
         }
@@ -78,6 +81,9 @@ export async function closeVoting(): Promise<void> {
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to close voting.', { cause: error })
         }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
+        }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
         }
@@ -103,6 +109,9 @@ export async function finalizeRound(): Promise<ChampionId> {
 
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to finalize the round.', { cause: error })
+        }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
         }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
@@ -130,6 +139,9 @@ export async function startNextRound(): Promise<number> {
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to start the next round.', { cause: error })
         }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
+        }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
         }
@@ -154,6 +166,9 @@ export async function buildLeaderboard(): Promise<void> {
 
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to build the leaderboard.', { cause: error })
+        }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
         }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
@@ -180,6 +195,9 @@ export async function prepareFinalResult(): Promise<void> {
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to prepare final result.', { cause: error })
         }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
+        }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
         }
@@ -204,6 +222,9 @@ export async function startTiebreak(): Promise<void> {
 
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to start tiebreak.', { cause: error })
+        }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
         }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
@@ -230,6 +251,9 @@ export async function closeTiebreakVoting(): Promise<void> {
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to close tiebreak voting.', { cause: error })
         }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
+        }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })
         }
@@ -254,6 +278,9 @@ export async function finalizeTiebreak(): Promise<void> {
 
         if (code === 'unauthenticated') {
             throw new Error('You must be signed in to finalize tiebreak.', { cause: error })
+        }
+        if (code === 'permission-denied') {
+            throw new Error('You are not authorized as a Game Master.', { cause: error })
         }
         if (code === 'invalid-argument') {
             throw new Error('The game id was invalid.', { cause: error })

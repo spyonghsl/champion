@@ -1,3 +1,63 @@
+# Champion Game 2026
+
+A real-time voting and scoring web application for champion selection, built with React, TypeScript, Vite, Firebase, and Cloud Functions.
+
+## GM Authentication and Authorization
+
+### Prerequisites
+
+Before deploying, you must set up GM (Game Master) authentication:
+
+#### 1. Enable Email/Password Authentication
+
+In Firebase Console:
+1. Go to **Authentication** → **Sign-in methods**
+2. Enable **Email/Password** provider
+3. Save
+
+#### 2. Create GM User Account
+
+1. In Firebase Console, go to **Authentication** → **Users**
+2. Click **Create user** and enter:
+   - Email: `gm@champion.local`
+   - Password: (Generate a strong password; never commit it to source code)
+3. Copy the **User UID** from the created account
+
+#### 3. Add GM to RTDB Allowlist
+
+1. Go to **Realtime Database**
+2. Create or navigate to `games/game001/admin/gmUids/{UID}`
+3. Set the value to `true`
+
+Example:
+```
+games/
+  game001/
+    admin/
+      gmUids/
+        <YOUR_GM_UID>: true
+```
+
+#### 4. Deploy Cloud Functions
+
+```bash
+npm --prefix functions run build
+firebase deploy --only functions
+```
+
+#### 5. Access GM Dashboard
+
+1. Navigate to `/gm` route in the application
+2. Enter only the password (email is auto-filled as `gm@champion.local`)
+3. Click **Sign In**
+
+### Security Model
+
+- **Participants**: Anonymous Firebase Authentication
+- **GM Users**: Email/Password authentication, verified via RTDB allowlist
+- **Backend Authorization**: Cloud Functions validate every GM action against `games/{gameId}/admin/gmUids/{uid}`
+- **Error Handling**: Non-allowlisted GMs receive clear "You are not authorized as a Game Master" message
+
 # React + TypeScript + Vite
 
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.

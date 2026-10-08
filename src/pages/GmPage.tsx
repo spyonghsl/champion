@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { onAuthStateChanged, signInAnonymously } from 'firebase/auth'
+import { useCallback, useEffect, useState } from 'react'
+import { onAuthStateChanged } from 'firebase/auth'
 
 import { auth } from '../firebase/config'
+import { signInGm, signOutGm } from '../services/gmAuth'
 import {
   buildLeaderboard,
   closeTiebreakVoting,
@@ -20,7 +21,94 @@ import type { Round } from '../types/round'
 import type { Tiebreak } from '../types/tiebreak'
 
 function GmPage() {
-  const [isReady, setIsReady] = useState(false)
+  const [user, setUser] = useState<{ uid: string; email: string | null } | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (currentUser) {
+        setUser({ uid: currentUser.uid, email: currentUser.email })
+      } else {
+        setUser(null)
+      }
+      setIsLoading(false)
+    })
+
+    return unsubscribe
+  }, [])
+
+  if (isLoading) {
+    return (
+      <main>
+        <h1>GM Dashboard</h1>
+        <p>Loading...</p>
+      </main>
+    )
+  }
+
+  if (!user) {
+    return (
+      <main>
+        <h1>GM Dashboard</h1>
+        <GmLoginForm />
+      </main>
+    )
+  }
+
+  return (
+    <main>
+      <h1>GM Dashboard</h1>
+      <GmControls />
+    </main>
+  )
+}
+
+function GmLoginForm() {
+  const [password, setPassword] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
+
+  const handleLogin = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
+      setIsLoading(true)
+      setLoginError(null)
+
+      try {
+        await signInGm(password)
+      } catch (err: unknown) {
+        setLoginError(err instanceof Error ? err.message : 'Login failed.')
+      } finally {
+        setIsLoading(false)
+        setPassword('')
+      }
+    },
+    [password]
+  )
+
+  return (
+    <form onSubmit={handleLogin}>
+      <h2>GM Login</h2>
+      <div>
+        <label htmlFor="gm-password">Password:</label>
+        <input
+          id="gm-password"
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+          disabled={isLoading}
+        />
+      </div>
+      {loginError && <p role="alert">{loginError}</p>}
+      <button type="submit" disabled={isLoading}>
+        {isLoading ? 'Logging in...' : 'Sign In'}
+      </button>
+    </form>
+  )
+}
+
+function GmControls() {
   const [round, setRound] = useState<Round | null>(null)
   const [leaderboard, setLeaderboard] = useState<Leaderboard | null>(null)
   const [finalResult, setFinalResult] = useState<FinalResult | null>(null)
@@ -28,30 +116,18 @@ function GmPage() {
   const [isActing, setIsActing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setIsReady(true)
-        return
-      }
-
-      setIsReady(false)
-      signInAnonymously(auth)
-        .then(() => {
-          setIsReady(true)
-        })
-        .catch((err: unknown) => {
-          setError(err instanceof Error ? err.message : 'Sign-in failed.')
-        })
-    })
-
-    return unsubscribe
-  }, [])
-
   useEffect(() => subscribeToCurrentRound(setRound), [])
   useEffect(() => subscribeToLeaderboard(setLeaderboard), [])
   useEffect(() => subscribeToFinalResult(setFinalResult), [])
   useEffect(() => subscribeToTiebreak(setTiebreak), [])
+
+  async function handleSignOut() {
+    try {
+      await signOutGm()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Sign-out failed.')
+    }
+  }
 
   async function handleStartDemoRound() {
     setIsActing(true)
@@ -185,7 +261,7 @@ function GmPage() {
         <button
           type="button"
           onClick={() => void handleStartDemoRound()}
-          disabled={isActing || !isReady}
+          disabled={isActing}
         >
           Start Demo Round
         </button>
@@ -201,7 +277,7 @@ function GmPage() {
         <button
           type="button"
           onClick={() => void handleCloseVoting()}
-          disabled={isActing || !isReady}
+          disabled={isActing}
         >
           Close Voting
         </button>
@@ -213,7 +289,7 @@ function GmPage() {
         <button
           type="button"
           onClick={() => void handleFinalizeRound()}
-          disabled={isActing || !isReady}
+          disabled={isActing}
         >
           Finalize Result
         </button>
@@ -231,7 +307,7 @@ function GmPage() {
             <button
               type="button"
               onClick={() => void handlePrepareFinalResult()}
-              disabled={isActing || !isReady}
+              disabled={isActing}
             >
               Prepare Final Result
             </button>
@@ -259,7 +335,7 @@ function GmPage() {
                   <button
                     type="button"
                     onClick={() => void handleCloseTiebreakVoting()}
-                    disabled={isActing || !isReady}
+                    disabled={isActing}
                   >
                     Close Tiebreak Voting
                   </button>
@@ -270,7 +346,7 @@ function GmPage() {
                   <button
                     type="button"
                     onClick={() => void handleFinalizeTiebreak()}
-                    disabled={isActing || !isReady}
+                    disabled={isActing}
                   >
                     Finalize Tiebreak
                   </button>
@@ -281,7 +357,7 @@ function GmPage() {
                   <button
                     type="button"
                     onClick={() => void handleStartTiebreak()}
-                    disabled={isActing || !isReady}
+                    disabled={isActing}
                   >
                     Start Tiebreak
                   </button>
@@ -295,7 +371,7 @@ function GmPage() {
           <button
             type="button"
             onClick={() => void handlePrepareFinalResult()}
-            disabled={isActing || !isReady}
+            disabled={isActing}
           >
             Prepare Final Result
           </button>
@@ -309,7 +385,7 @@ function GmPage() {
               <button
                 type="button"
                 onClick={() => void handleBuildLeaderboard()}
-                disabled={isActing || !isReady}
+                disabled={isActing}
               >
                 {round.roundNumber === 4 ? 'Build Final Leaderboard' : 'Build Leaderboard'}
               </button>
@@ -320,7 +396,7 @@ function GmPage() {
               <button
                 type="button"
                 onClick={() => void handleStartNextRound()}
-                disabled={isActing || !isReady}
+                disabled={isActing}
               >
                 {buttonLabel}
               </button>
@@ -334,14 +410,46 @@ function GmPage() {
   }
 
   return (
-    <main>
-      <h1>GM Controls</h1>
-      <p>Round number: {round ? round.roundNumber : 'None'}</p>
-      <p>Mode: {round ? (round.isDemo ? 'Demo' : 'Scoring') : 'None'}</p>
-      <p>Status: {round ? round.status : 'No current round'}</p>
-      {renderControls()}
-      {error ? <p role="alert">{error}</p> : null}
-    </main>
+    <>
+      <h2>GM Controls</h2>
+      {error && <p role="alert">{error}</p>}
+      <div>
+        <h3>Current Round: {round?.roundNumber}</h3>
+        <p>Status: {round?.status}</p>
+        {round?.eliminatedChampion && <p>Eliminated: {round.eliminatedChampion}</p>}
+      </div>
+      <div>
+        <h3>Controls</h3>
+        {renderControls()}
+      </div>
+      {leaderboard && (
+        <details>
+          <summary>Leaderboard (Round {leaderboard.roundNumber})</summary>
+          <ol>
+            {leaderboard.entries.map((entry) => (
+              <li key={entry.uid}>
+                {entry.nickname}: {entry.totalScore} points
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+      {finalResult && (
+        <details>
+          <summary>Final Result (Status: {finalResult.status})</summary>
+          <ol>
+            {finalResult.topFive.map((entry) => (
+              <li key={entry.uid}>
+                {entry.nickname}: {entry.totalScore} points
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+      <button type="button" onClick={() => void handleSignOut()}>
+        Sign Out
+      </button>
+    </>
   )
 }
 
